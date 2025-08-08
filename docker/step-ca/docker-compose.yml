@@ -14,10 +14,19 @@ services:
     ports:
       - "${STEP_CA_PORT:-9000}:9000"
     environment:
+      # Required
       - DOCKER_STEPCA_INIT_NAME=${STEP_CA_NAME:-Smallstep}
       - DOCKER_STEPCA_INIT_DNS_NAMES=${STEP_CA_DNS:-localhost,ca.company.internal}
+
+      # Recommended
       - DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true
       - DOCKER_STEPCA_INIT_ACME=true
+
+      # Optional
+      - DOCKER_STEPCA_INIT_PROVISIONER_NAME=${STEP_CA_PROVISIONER_NAME:-admin}
+      - DOCKER_STEPCA_INIT_SSH=${STEP_CA_SSH_SUPPORT:-}
+      - DOCKER_STEPCA_INIT_PASSWORD_FILE=${STEP_CA_PASSWORD_FILE:-}
+      - DOCKER_STEPCA_INIT_PASSWORD=${STEP_CA_PASSWORD:-}
     volumes:
       - step:/home/step
     restart: unless-stopped
