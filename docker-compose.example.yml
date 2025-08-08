@@ -1,50 +1,68 @@
-# Example Docker Compose configuration for Dimension Bridge Certificate Manager
+# Dimension Bridge - PKI Certificate Management Example
+#
+# Architecture: Centralized Step CA + Distributed Certificate Agents (Sidecar Pattern)
+#
+# ┌─────────────┐    ACME     ┌──────────────────┐
+# │   Step CA   │◄──────────► │  cert-agents     │
+# │(Centralized)│             │  (Sidecars)      │
+# └─────────────┘             └─────────┬────────┘
+#                                       │ Volume Mount
+#                             ┌─────────▼────────┐
+#                             │   Your Services  │
+#                             │ (nginx,api,db..) │
+#                             └──────────────────┘
+#
 # Copy this file to docker-compose.yml and customize for your environment
 
 version: '3.8'
 
 services:
-  # Example: Web server with certificate agent
+  # ============================================================================
+  # NGINX WEB SERVER + CERTIFICATE AGENT (Sidecar Pattern)
+  # ============================================================================
+
+  # Your web server service
   nginx:
     image: nginx:alpine
+    container_name: nginx-web
     ports:
       - "443:443"
       - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - web_certs:/etc/ssl/certs:ro
+      - web_certs:/etc/ssl/certs:ro     # 🔗 Shared certificate volume
     depends_on:
-      - web-cert-agent
+      - web-cert-agent                   # Wait for certificate agent
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  # Certificate agent for web server
+  # Certificate management agent (SIDECAR) for nginx
   web-cert-agent:
     image: appleparan/dimension-bridge:latest
+    container_name: nginx-cert-agent
     environment:
-      # Required configuration
-      CERT_DOMAINS: "web.company.internal,api.company.internal"
+      # 🎯 Target service configuration
+      CERT_DOMAINS: "web.company.internal,www.company.internal"
       STEP_CA_URL: "https://ca.company.internal:9000"
-      RELOAD_COMMAND: "docker exec nginx nginx -s reload"
-
-      # Optional configuration
+      RELOAD_COMMAND: "docker exec nginx-web nginx -s reload"
       SERVICE_NAME: "nginx-web"
-      RENEWAL_DAYS: "7"
-      CHECK_INTERVAL: "6h"
-      CERT_VALIDITY: "15d"
-      HEALTH_PORT: "8080"
 
-      # Notifications (optional)
+      # ⏱️ Certificate lifecycle
+      DAYS_BEFORE_RENEWAL: "7"
+      CHECK_INTERVAL: "21600"  # 6 hours
+      CERT_VALIDITY_DAYS: "15"
+
+      # 📢 Notifications (optional)
       SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
 
-      # Logging
+      # 🔧 Monitoring
       RUST_LOG: "info"
     volumes:
-      - web_certs:/certs:rw
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - web_certs:/certs:rw                        # 🔗 Same volume as nginx
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker API access
     healthcheck:
       test: ["CMD", "/app/health-check.sh"]
       interval: 30s
@@ -53,100 +71,125 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  # Example: Database with certificate agent
+  # ============================================================================
+  # POSTGRESQL DATABASE + CERTIFICATE AGENT (Sidecar Pattern)
+  # ============================================================================
+
+  # Your database service
   postgres:
     image: postgres:15
+    container_name: postgres-db
     environment:
       POSTGRES_DB: myapp
       POSTGRES_USER: myapp
       POSTGRES_PASSWORD: secretpassword
-      # SSL configuration
-      POSTGRES_SSL_CERT_FILE: "/var/lib/postgresql/certs/db.company.internal.crt"
-      POSTGRES_SSL_KEY_FILE: "/var/lib/postgresql/certs/db.company.internal.key"
+      # 🔐 SSL certificate configuration
+      POSTGRES_SSL_CERT_FILE: "/var/lib/postgresql/certs/postgres-db.crt"
+      POSTGRES_SSL_KEY_FILE: "/var/lib/postgresql/certs/postgres-db.key"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - db_certs:/var/lib/postgresql/certs:ro
+      - db_certs:/var/lib/postgresql/certs:ro  # 🔗 Shared certificate volume
     ports:
       - "5432:5432"
     depends_on:
-      - db-cert-agent
+      - db-cert-agent                          # Wait for certificate agent
 
-  # Certificate agent for database
+  # Certificate management agent (SIDECAR) for postgres
   db-cert-agent:
     image: appleparan/dimension-bridge:latest
+    container_name: postgres-cert-agent
     environment:
+      # 🎯 Target service configuration
       CERT_DOMAINS: "db.company.internal"
       STEP_CA_URL: "https://ca.company.internal:9000"
-      RELOAD_COMMAND: "docker exec postgres pg_ctl reload -D /var/lib/postgresql/data"
+      RELOAD_COMMAND: "docker exec postgres-db pg_ctl reload -D /var/lib/postgresql/data"
       SERVICE_NAME: "postgres-db"
-      HEALTH_PORT: "8081"
+
+      # ⏱️ Certificate lifecycle
+      DAYS_BEFORE_RENEWAL: "7"
+      CHECK_INTERVAL: "21600"  # 6 hours
+      CERT_VALIDITY_DAYS: "15"
     volumes:
-      - db_certs:/certs:rw
+      - db_certs:/certs:rw                     # 🔗 Same volume as postgres
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     restart: unless-stopped
 
-  # Example: API service with certificate agent
+  # ============================================================================
+  # API SERVICE + CERTIFICATE AGENT (Sidecar Pattern)
+  # ============================================================================
+
+  # Your API service
   api-service:
     image: mycompany/api:latest
+    container_name: api-service
     environment:
-      SSL_CERT_PATH: "/etc/ssl/certs/api.company.internal.crt"
-      SSL_KEY_PATH: "/etc/ssl/certs/api.company.internal.key"
+      # 🔐 SSL certificate configuration
+      SSL_CERT_PATH: "/etc/ssl/certs/api-service.crt"
+      SSL_KEY_PATH: "/etc/ssl/certs/api-service.key"
     volumes:
-      - api_certs:/etc/ssl/certs:ro
+      - api_certs:/etc/ssl/certs:ro    # 🔗 Shared certificate volume
     ports:
       - "8443:8443"
     depends_on:
-      - api-cert-agent
+      - api-cert-agent                 # Wait for certificate agent
 
-  # Certificate agent for API service
+  # Certificate management agent (SIDECAR) for API
   api-cert-agent:
     image: appleparan/dimension-bridge:latest
+    container_name: api-cert-agent
     environment:
+      # 🎯 Target service configuration
       CERT_DOMAINS: "api.company.internal"
       STEP_CA_URL: "https://ca.company.internal:9000"
       RELOAD_COMMAND: "curl -X POST http://api-service:8080/reload-ssl"
       SERVICE_NAME: "api-service"
-      HEALTH_PORT: "8082"
+
+      # ⏱️ Certificate lifecycle
+      DAYS_BEFORE_RENEWAL: "7"
+      CHECK_INTERVAL: "21600"  # 6 hours
+      CERT_VALIDITY_DAYS: "15"
     volumes:
-      - api_certs:/certs:rw
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - api_certs:/certs:rw            # 🔗 Same volume as API service
     restart: unless-stopped
 
-  # Example: Monitoring stack
+  # ============================================================================
+  # GRAFANA MONITORING + CERTIFICATE AGENT (Sidecar Pattern)
+  # ============================================================================
+
+  # Your monitoring service
   grafana:
     image: grafana/grafana:latest
+    container_name: grafana-monitoring
     environment:
       GF_SERVER_PROTOCOL: "https"
-      GF_SERVER_CERT_FILE: "/etc/ssl/certs/monitoring.company.internal.crt"
-      GF_SERVER_CERT_KEY: "/etc/ssl/certs/monitoring.company.internal.key"
+      # 🔐 SSL certificate configuration
+      GF_SERVER_CERT_FILE: "/etc/ssl/certs/monitoring.crt"
+      GF_SERVER_CERT_KEY: "/etc/ssl/certs/monitoring.key"
     volumes:
       - grafana_data:/var/lib/grafana
-      - monitoring_certs:/etc/ssl/certs:ro
+      - monitoring_certs:/etc/ssl/certs:ro  # 🔗 Shared certificate volume
     ports:
       - "3000:3000"
     depends_on:
-      - monitoring-cert-agent
+      - monitoring-cert-agent               # Wait for certificate agent
 
-  # Certificate agent for monitoring
+  # Certificate management agent (SIDECAR) for monitoring
   monitoring-cert-agent:
     image: appleparan/dimension-bridge:latest
+    container_name: monitoring-cert-agent
     environment:
+      # 🎯 Target service configuration
       CERT_DOMAINS: "monitoring.company.internal,grafana.company.internal"
       STEP_CA_URL: "https://ca.company.internal:9000"
-      RELOAD_COMMAND: "docker restart grafana"
+      RELOAD_COMMAND: "docker restart grafana-monitoring"
       SERVICE_NAME: "monitoring"
-      HEALTH_PORT: "8083"
+
+      # ⏱️ Certificate lifecycle
+      DAYS_BEFORE_RENEWAL: "7"
+      CHECK_INTERVAL: "21600"  # 6 hours
+      CERT_VALIDITY_DAYS: "15"
     volumes:
-      - monitoring_certs:/certs:rw
+      - monitoring_certs:/certs:rw          # 🔗 Same volume as grafana
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 
@@ -163,6 +206,43 @@ volumes:
     driver: local
   grafana_data:
     driver: local
+
+# ==============================================================================
+# ARCHITECTURE SUMMARY
+# ==============================================================================
+#
+# This example demonstrates the SIDECAR PATTERN for certificate management:
+#
+# 1. STEP CA (Centralized Authority)
+#    - Deploy once: `cd docker/step-ca && docker-compose up -d`
+#    - Issues certificates for all services
+#    - Single point of policy management
+#
+# 2. CERTIFICATE AGENTS (Distributed Sidecars)
+#    - One agent per service (1:1 relationship)
+#    - Shared volume with target service
+#    - Service-specific reload commands
+#    - Independent certificate lifecycle
+#
+# 3. SERVICE INTEGRATION
+#    Each service pair follows this pattern:
+#    ┌─────────────────┐    Volume Mount    ┌─────────────────┐
+#    │  Your Service   │ ◄────────────────► │  Cert-Agent     │
+#    │  (nginx/api/db) │                    │  (Sidecar)      │
+#    └─────────────────┘                    └─────────┬───────┘
+#                                                     │ ACME
+#                                           ┌─────────▼───────┐
+#                                           │   Step CA       │
+#                                           │ (ca:9000)       │
+#                                           └─────────────────┘
+#
+# BENEFITS:
+# ✅ Certificate isolation per service
+# ✅ Independent scaling and lifecycle
+# ✅ Service-specific configuration
+# ✅ Zero shared secrets between services
+# ✅ Automatic certificate renewal
+# ✅ Custom reload strategies per service type
 
 # Optional: Network configuration
 networks:

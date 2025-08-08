@@ -78,6 +78,101 @@ make step-ca-logs     # View logs
 
 ## 🏗️ Architecture
 
+### System Overview
+
+Dimension Bridge implements a **centralized PKI architecture** with **distributed certificate agents**:
+
+```text
+                    ┌─────────────────────────┐
+                    │      Step CA Server      │
+                    │  (Central PKI Authority) │
+                    │   - Issues certificates  │
+                    │   - Manages revocation   │
+                    │   - ACME protocol        │
+                    └─────────────┬───────────┘
+                                  │ HTTPS/ACME
+                    ┌─────────────┼───────────┐
+                    │             │           │
+            ┌───────▼───────┐ ┌───▼─────┐ ┌─▼─────────┐
+            │  Cert-Manager │ │Cert-Mgr │ │Cert-Mgr   │
+            │   (Agent)     │ │(Agent)  │ │(Agent)    │
+            │               │ │         │ │           │
+            └───────┬───────┘ └───┬─────┘ └─┬─────────┘
+                    │ Mount Vol     │ Vol     │ Vol
+            ┌───────▼───────┐ ┌───▼─────┐ ┌─▼─────────┐
+            │  Nginx Server │ │API Svc  │ │Database   │
+            │               │ │         │ │           │
+            └───────────────┘ └─────────┘ └───────────┘
+```
+
+### Component Architecture
+
+#### 🏛️ Step CA (Central Authority)
+
+- **Single instance** serving multiple services
+- **Certificate issuance** via ACME protocol
+- **Centralized policy management**
+- **Certificate revocation** and validation
+
+#### 🤖 Cert-Manager (Sidecar Agents)
+
+- **One agent per service** (sidecar pattern)
+- **Automatic certificate renewal**
+- **Service-specific reload commands**
+- **Shared volume with target service**
+
+### Deployment Patterns
+
+#### Pattern 1: Sidecar Container (Recommended)
+
+```yaml
+# docker-compose.yml
+services:
+  nginx:                          # Your service
+    image: nginx:alpine
+    volumes:
+      - web_certs:/etc/ssl/certs  # Shared certificate volume
+
+  web-cert-agent:                 # Certificate agent (sidecar)
+    image: appleparan/dimension-bridge:latest
+    environment:
+      - CERT_DOMAINS=web.company.internal
+      - STEP_CA_URL=https://ca.company.internal:9000
+      - RELOAD_COMMAND=docker exec nginx nginx -s reload
+    volumes:
+      - web_certs:/certs          # Same volume as service
+```
+
+#### Pattern 2: Multiple Services, Multiple Agents
+
+```text
+Step CA Server (ca.company.internal:9000)
+├── nginx-cert-agent     → nginx (web.company.internal)
+├── api-cert-agent       → api-service (api.company.internal)
+├── db-cert-agent        → postgres (db.company.internal)
+└── auth-cert-agent      → authentik (auth.company.internal)
+```
+
+### Benefits of This Architecture
+
+#### 🔒 Security
+
+- **Certificate isolation** per service
+- **Minimal privilege** per agent
+- **No shared secrets** between services
+
+#### 📈 Scalability
+
+- **Horizontal scaling** of agents
+- **Independent lifecycle** per service
+- **Service-specific policies**
+
+#### 🛠️ Flexibility
+
+- **Custom reload commands** per service type
+- **Different certificate validity** periods
+- **Service-specific monitoring**
+
 ```text
 [Step CA Server]
     ↓ ACME/API
@@ -289,7 +384,7 @@ make docker-run
 - **[Step CA Setup](docker/step-ca/README.md)** - PKI infrastructure setup
 - **[CLAUDE.md](CLAUDE.md)** - Detailed specifications and patterns
 
-## 🔒 Security
+## 🛡️ Security Features
 
 - **Non-root execution**: Containers run as unprivileged user
 - **Minimal attack surface**: Single-purpose container design
