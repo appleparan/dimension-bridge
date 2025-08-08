@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # Generic cert-agent service template
+  cert-agent:
+    image: appleparan/cert-agent:latest
+    container_name: cert-agent-generic
+    environment:
+      # Required configuration
+      - CERT_DOMAINS=example.company.internal,api.company.internal
+      - STEP_CA_URL=https://ca.company.internal:9000
+      - RELOAD_COMMAND=echo "Certificate updated - implement your reload logic here"
+
+      # Optional configuration with defaults
+      - RENEWAL_DAYS=7
+      - CHECK_INTERVAL=6h
+      - CERT_VALIDITY=15d
+      - SERVICE_NAME=generic-service
+
+      # Optional notification settings
+      # - SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+
+      # Step CA authentication (choose one method)
+      # Method 1: Password-based provisioner
+      - STEP_CA_PROVISIONER=admin
+      - STEP_CA_PROVISIONER_PASSWORD=changeme
+
+      # Method 2: JWK provisioner (uncomment if using)
+      # - STEP_CA_PROVISIONER=jwk-provisioner
+      # - STEP_CA_JWK_PASSWORD=jwk-password
+
+      # Method 3: ACME provisioner (recommended for automation)
+      # - STEP_CA_PROVISIONER=acme
+    volumes:
+      # Certificate storage - shared with target services
+      - cert_data:/certs:rw
+
+      # Docker socket access for service reload commands
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # Optional: Custom configuration
+      # - ./cert-agent-config:/config:ro
+    networks:
+      - cert-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      - step-ca
+
+  # Example: Step CA server reference (external)
+  step-ca:
+    image: smallstep/step-ca:latest
+    container_name: step-ca-server
+    ports:
+      - "9000:9000"
+    volumes:
+      - step_ca_data:/home/step
+    environment:
+      - DOCKER_STEPCA_INIT_NAME=Internal PKI CA
+      - DOCKER_STEPCA_INIT_DNS_NAMES=ca.company.internal,localhost
+      - DOCKER_STEPCA_INIT_ACME=true
+    networks:
+      - cert-network
+    restart: unless-stopped
+
+volumes:
+  cert_data:
+    driver: local
+  step_ca_data:
+    driver: local
+
+networks:
+  cert-network:
+    driver: bridge
+    external: false

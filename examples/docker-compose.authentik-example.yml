@@ -1,0 +1,151 @@
+version: '3.8'
+
+# Example: Authentik service with cert-agent integration
+services:
+  # Authentik database
+  authentik-db:
+    image: postgres:15-alpine
+    container_name: authentik-db
+    environment:
+      - POSTGRES_DB=authentik
+      - POSTGRES_USER=authentik
+      - POSTGRES_PASSWORD=${AUTHENTIK_DB_PASSWORD}
+    volumes:
+      - authentik_db:/var/lib/postgresql/data
+    networks:
+      - authentik-network
+    restart: unless-stopped
+
+  # Redis for Authentik caching
+  authentik-redis:
+    image: redis:alpine
+    container_name: authentik-redis
+    command: --save 60 1 --loglevel warning
+    volumes:
+      - authentik_redis:/data
+    networks:
+      - authentik-network
+    restart: unless-stopped
+
+  # Authentik server
+  authentik-server:
+    image: ghcr.io/goauthentik/server:latest
+    container_name: authentik-server
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    environment:
+      # Database configuration
+      - AUTHENTIK_POSTGRESQL__HOST=authentik-db
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${AUTHENTIK_DB_PASSWORD}
+
+      # Redis configuration
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+
+      # HTTPS/TLS configuration
+      - AUTHENTIK_WEB__HTTPS=true
+      - AUTHENTIK_WEB__TLS_CERT=/certs/authentik.company.internal.crt
+      - AUTHENTIK_WEB__TLS_KEY=/certs/authentik.company.internal.key
+
+      # Basic settings
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
+      - AUTHENTIK_ERROR_REPORTING__ENABLED=false
+    volumes:
+      # Certificate access (read-only)
+      - authentik_certs:/certs:ro
+
+      # Authentik data
+      - authentik_media:/media
+      - authentik_templates:/templates
+    depends_on:
+      - authentik-db
+      - authentik-redis
+      - authentik-cert-agent
+    networks:
+      - authentik-network
+    restart: unless-stopped
+
+  # Authentik worker
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:latest
+    container_name: authentik-worker
+    command: worker
+    environment:
+      # Database configuration
+      - AUTHENTIK_POSTGRESQL__HOST=authentik-db
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${AUTHENTIK_DB_PASSWORD}
+
+      # Redis configuration
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+
+      # Basic settings
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
+      - AUTHENTIK_ERROR_REPORTING__ENABLED=false
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    depends_on:
+      - authentik-db
+      - authentik-redis
+    networks:
+      - authentik-network
+    restart: unless-stopped
+
+  # Certificate agent for Authentik
+  authentik-cert-agent:
+    image: appleparan/cert-agent:latest
+    container_name: authentik-cert-agent
+    environment:
+      # Service-specific configuration
+      - CERT_DOMAINS=authentik.company.internal,auth.company.internal
+      - STEP_CA_URL=https://ca.company.internal:9000
+      - RELOAD_COMMAND=docker restart authentik-server
+      - SERVICE_NAME=authentik
+
+      # Renewal settings
+      - RENEWAL_DAYS=7
+      - CHECK_INTERVAL=6h
+      - CERT_VALIDITY=30d
+
+      # Step CA authentication
+      - STEP_CA_PROVISIONER=acme
+
+      # Notification settings
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+    volumes:
+      # Certificate storage (read-write)
+      - authentik_certs:/certs:rw
+
+      # Docker socket for service restart
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - authentik-network
+      - cert-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  authentik_db:
+    driver: local
+  authentik_redis:
+    driver: local
+  authentik_media:
+    driver: local
+  authentik_templates:
+    driver: local
+  authentik_certs:
+    driver: local
+
+networks:
+  authentik-network:
+    driver: bridge
+  cert-network:
+    external: true
