@@ -6,44 +6,44 @@ This directory deploys the Step CA server, which is the core of the PKI infrastr
 
 1. Configure environment (optional):
 
-```bash
-cp .env.example .env
-# Edit .env file with your settings
-```
+    ```bash
+    cp .env.example .env
+    # Edit .env file with your settings
+    ```
 
-1. Start Step CA:
+2. Start Step CA:
 
-```bash
-docker-compose up -d
-```
+    ```bash
+    docker-compose up -d
+    ```
 
-1. Install step CLI (if not installed):
+3. Install step CLI (if not installed):
 
-```bash
-# Option 1: Auto-install with bootstrap
-./bootstrap.sh
+    ```bash
+    # Option 1: Auto-install with bootstrap
+    ./bootstrap.sh
 
-# Option 2: Install separately
-sudo ./install-step-cli.sh
-./bootstrap.sh
-```
+    # Option 2: Install separately
+    sudo ./install-step-cli.sh
+    ./bootstrap.sh
+    ```
 
-1. Verify connection:
+4. Verify connection:
 
-```bash
-step ca health
-```
+    ```bash
+    step ca health
+    ```
 
-1. (Optional) Configure environment variables:
+5. (Optional) Configure environment variables:
 
-```bash
-# Required
-export STEP_CA_NAME="My Company CA"                    # CA name (issuer name)
-export STEP_CA_DNS="ca.mycompany.com,localhost"       # Hostnames/IPs CA accepts requests on
+    ```bash
+    # Required
+    export STEP_CA_NAME="My Company CA"                    # CA name (issuer name)
+    export STEP_CA_DNS="ca.mycompany.com,localhost"       # Hostnames/IPs CA accepts requests on
 
-# Optional
-export STEP_CA_PORT="9000"                             # Port to expose (default: 9000)
-```
+    # Optional
+    export STEP_CA_PORT="9000"                             # Port to expose (default: 9000)
+    ```
 
 ## Environment Variables
 

@@ -9,20 +9,35 @@ Automated SSL/TLS certificate management system for internal services using cent
 ### Using Make (Recommended)
 
 ```bash
-# 1. Build the application
+# 1. Setup Step CA infrastructure (one-time)
+make step-ca-setup
+
+# 2. Build the application
 make release
 
-# 2. Run once to test
+# 3. Run once to test
 make once
 
-# 3. Run in daemon mode
+# 4. Run in daemon mode
 make run
 
-# 4. Check status
+# 5. Check health status
 make health
 
-# 5. View all available commands
+# 6. View all available commands
 make help
+```
+
+#### PKI Infrastructure Management
+
+```bash
+# Setup Step CA with automatic bootstrap
+make step-ca-setup
+
+# Manage Step CA service
+make step-ca-start    # Start Step CA
+make step-ca-stop     # Stop Step CA
+make step-ca-logs     # View logs
 ```
 
 ### Docker Deployment
@@ -34,19 +49,29 @@ make help
    cp .env.example .env
    # Edit .env file with your configuration
    docker-compose up -d
+
+   # Bootstrap Step CLI client (auto-install + setup)
+   ./bootstrap.sh
+
+   # Verify connection
+   step ca health
    ```
 
 2. **Build Certificate Manager**
 
    ```bash
-   cd ../cert-manager/
-   make docker-build        # Or: docker-compose build
+   # Build using Docker
+   make docker-build
+
+   # Or build using docker-compose
+   cd docker/cert-manager/
+   docker-compose build
    ```
 
 3. **Deploy with Your Service**
 
    ```bash
-   cd ../examples/nginx/
+   cd docker/examples/nginx/
    # Edit nginx.conf with your domain names
    docker-compose up -d
    ```
