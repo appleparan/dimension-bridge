@@ -133,3 +133,7 @@ too_many_lines = "allow"
 # Allow in certificate management context
 similar_names = "allow"
 wildcard_imports = "allow"
+
+# === CARGO LINT EXCEPTIONS ===
+# Multiple crate versions are common in dev dependencies and don't affect runtime
+multiple_crate_versions = "allow"

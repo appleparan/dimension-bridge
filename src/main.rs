@@ -1,4 +1,3 @@
-#![allow(clippy::multiple_crate_versions)]
 //! Simple certificate manager - Rust port of cert-manager.sh
 //!
 //! Automated certificate lifecycle management using Step CLI or OpenSSL.

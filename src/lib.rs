@@ -2,8 +2,6 @@
 //!
 //! Core library for automated certificate lifecycle management.
 
-#![allow(clippy::multiple_crate_versions)]
-
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use std::{env, process::Command};
@@ -465,6 +463,11 @@ impl CertManager {
         }
     }
 
+    /// Check if a string is a valid IP address.
+    fn is_ip_address(addr: &str) -> bool {
+        addr.parse::<std::net::IpAddr>().is_ok()
+    }
+
     /// Try generating certificate with OpenSSL.
     async fn try_openssl(
         &self,
@@ -475,7 +478,17 @@ impl CertManager {
             "/C=KR/O={} Service/CN={}",
             self.config.service_name, self.config.server_ip
         );
-        let san = format!("IP:{},DNS:localhost,IP:127.0.0.1", self.config.server_ip);
+
+        // Build SAN (Subject Alternative Name) list properly
+        let mut san_entries = vec!["DNS:localhost".to_owned(), "IP:127.0.0.1".to_owned()];
+
+        if Self::is_ip_address(&self.config.server_ip) {
+            san_entries.push(format!("IP:{}", self.config.server_ip));
+        } else {
+            san_entries.push(format!("DNS:{}", self.config.server_ip));
+        }
+
+        let san = san_entries.join(",");
 
         let mut child = Command::new("openssl")
             .args([
@@ -666,5 +679,103 @@ mod tests {
         // Verify directories were created
         assert!(cert_dir.exists());
         assert!(log_dir.exists());
+    }
+
+    #[test]
+    fn test_is_ip_address_valid_ipv4() {
+        assert!(CertManager::is_ip_address("192.168.1.1"));
+        assert!(CertManager::is_ip_address("127.0.0.1"));
+        assert!(CertManager::is_ip_address("10.0.0.1"));
+        assert!(CertManager::is_ip_address("172.16.0.1"));
+        assert!(CertManager::is_ip_address("8.8.8.8"));
+        assert!(CertManager::is_ip_address("255.255.255.255"));
+        assert!(CertManager::is_ip_address("0.0.0.0"));
+    }
+
+    #[test]
+    fn test_is_ip_address_valid_ipv6() {
+        assert!(CertManager::is_ip_address("::1"));
+        assert!(CertManager::is_ip_address("2001:db8::1"));
+        assert!(CertManager::is_ip_address("fe80::1"));
+        assert!(CertManager::is_ip_address("::"));
+        assert!(CertManager::is_ip_address(
+            "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+        ));
+    }
+
+    #[test]
+    fn test_is_ip_address_invalid_domain_names() {
+        assert!(!CertManager::is_ip_address("example.com"));
+        assert!(!CertManager::is_ip_address("subdomain.example.com"));
+        assert!(!CertManager::is_ip_address("api.company.internal"));
+        assert!(!CertManager::is_ip_address("localhost"));
+        assert!(!CertManager::is_ip_address("my-service"));
+        assert!(!CertManager::is_ip_address("test1.example.com"));
+        assert!(!CertManager::is_ip_address("web-server.local"));
+    }
+
+    #[test]
+    fn test_is_ip_address_invalid_formats() {
+        assert!(!CertManager::is_ip_address(""));
+        assert!(!CertManager::is_ip_address("256.256.256.256")); // Invalid IPv4
+        assert!(!CertManager::is_ip_address("192.168.1")); // Incomplete IPv4
+        assert!(!CertManager::is_ip_address("192.168.1.1.1")); // Too many octets
+        assert!(!CertManager::is_ip_address("not-an-ip"));
+        assert!(!CertManager::is_ip_address("192.168.abc.1"));
+        assert!(!CertManager::is_ip_address("::1::2")); // Invalid IPv6
+    }
+
+    #[test]
+    fn test_san_generation_with_ip_address() {
+        let config = Config::test_from_values("192.168.1.100", "test-service", "/tmp", 3600);
+        let manager = CertManager::new(config);
+
+        // We need to test the SAN generation logic indirectly by checking the components
+        let mut san_entries = vec!["DNS:localhost".to_owned(), "IP:127.0.0.1".to_owned()];
+
+        if CertManager::is_ip_address(&manager.config.server_ip) {
+            san_entries.push(format!("IP:{}", manager.config.server_ip));
+        } else {
+            san_entries.push(format!("DNS:{}", manager.config.server_ip));
+        }
+
+        let san = san_entries.join(",");
+        assert_eq!(san, "DNS:localhost,IP:127.0.0.1,IP:192.168.1.100");
+    }
+
+    #[test]
+    fn test_san_generation_with_domain_name() {
+        let config = Config::test_from_values("api.example.com", "test-service", "/tmp", 3600);
+        let manager = CertManager::new(config);
+
+        // Test SAN generation logic for domain names
+        let mut san_entries = vec!["DNS:localhost".to_owned(), "IP:127.0.0.1".to_owned()];
+
+        if CertManager::is_ip_address(&manager.config.server_ip) {
+            san_entries.push(format!("IP:{}", manager.config.server_ip));
+        } else {
+            san_entries.push(format!("DNS:{}", manager.config.server_ip));
+        }
+
+        let san = san_entries.join(",");
+        assert_eq!(san, "DNS:localhost,IP:127.0.0.1,DNS:api.example.com");
+    }
+
+    #[test]
+    fn test_san_generation_with_subdomain() {
+        let config = Config::test_from_values("web.company.internal", "test-service", "/tmp", 3600);
+        let manager = CertManager::new(config);
+
+        // Test SAN generation logic for subdomains
+        let mut san_entries = vec!["DNS:localhost".to_owned(), "IP:127.0.0.1".to_owned()];
+
+        if CertManager::is_ip_address(&manager.config.server_ip) {
+            san_entries.push(format!("IP:{}", manager.config.server_ip));
+        } else {
+            san_entries.push(format!("DNS:{}", manager.config.server_ip));
+        }
+
+        let san = san_entries.join(",");
+        assert_eq!(san, "DNS:localhost,IP:127.0.0.1,DNS:web.company.internal");
     }
 }
