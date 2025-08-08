@@ -89,16 +89,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 
-      # 4) Install musl tools for musl builds
-      - name: Install musl tools (musl targets only)
-        if: contains(matrix.target, 'musl')
+      # 4) Install cross-compilation tools
+      - name: Install cross for cross-compilation
+        if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
         run: |
-          sudo apt update
-          sudo apt install -y musl-tools
+          cargo install cross --git https://github.com/cross-rs/cross
 
       # 5) Build the release binary
-      - name: Build release binary
+      - name: Build release binary (native)
+        if: runner.os == 'macOS' || matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo build --release --target ${{ matrix.target }} --locked
+
+      - name: Build release binary (cross-compile)
+        if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
+        run: cross build --release --target ${{ matrix.target }} --locked
 
       # 6) Package binaries
       - name: Package Linux binary (tar.gz)
