@@ -1,0 +1,39 @@
+# Build artifacts
+target/
+
+# Documentation
+*.md
+docs/
+
+# Git
+.git/
+.gitignore
+
+# Development files
+.env
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CI/CD
+.github/
+.pre-commit-config.yaml
+
+# Docker
+docker-compose*.yml
+Dockerfile.*
+
+# Test files
+tests/
+test_data/
+
+# Coverage reports
+coverage/
+*.profraw
+
+# Backup files
+*.bak
+*.tmp
+*.old

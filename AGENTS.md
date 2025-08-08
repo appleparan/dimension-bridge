@@ -28,7 +28,7 @@ centralized PKI infrastructure.
 
 ### 2. Generic Cert Agent (Docker Image)
 
-- **Image**: `company/cert-agent:latest`
+- **Image**: `appleparan/cert-agent:latest`
 - **Purpose**: Per-service certificate auto-renewal
 - **Pattern**: Sidecar container
 

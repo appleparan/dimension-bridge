@@ -1,0 +1,171 @@
+# Example Docker Compose configuration for Dimension Bridge Certificate Manager
+# Copy this file to docker-compose.yml and customize for your environment
+
+version: '3.8'
+
+services:
+  # Example: Web server with certificate agent
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - web_certs:/etc/ssl/certs:ro
+    depends_on:
+      - web-cert-agent
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Certificate agent for web server
+  web-cert-agent:
+    image: appleparan/dimension-bridge:latest
+    environment:
+      # Required configuration
+      CERT_DOMAINS: "web.company.internal,api.company.internal"
+      STEP_CA_URL: "https://ca.company.internal:9000"
+      RELOAD_COMMAND: "docker exec nginx nginx -s reload"
+
+      # Optional configuration
+      SERVICE_NAME: "nginx-web"
+      RENEWAL_DAYS: "7"
+      CHECK_INTERVAL: "6h"
+      CERT_VALIDITY: "15d"
+      HEALTH_PORT: "8080"
+
+      # Notifications (optional)
+      SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+      # Logging
+      RUST_LOG: "info"
+    volumes:
+      - web_certs:/certs:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "/app/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # Example: Database with certificate agent
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: myapp
+      POSTGRES_PASSWORD: secretpassword
+      # SSL configuration
+      POSTGRES_SSL_CERT_FILE: "/var/lib/postgresql/certs/db.company.internal.crt"
+      POSTGRES_SSL_KEY_FILE: "/var/lib/postgresql/certs/db.company.internal.key"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - db_certs:/var/lib/postgresql/certs:ro
+    ports:
+      - "5432:5432"
+    depends_on:
+      - db-cert-agent
+
+  # Certificate agent for database
+  db-cert-agent:
+    image: appleparan/dimension-bridge:latest
+    environment:
+      CERT_DOMAINS: "db.company.internal"
+      STEP_CA_URL: "https://ca.company.internal:9000"
+      RELOAD_COMMAND: "docker exec postgres pg_ctl reload -D /var/lib/postgresql/data"
+      SERVICE_NAME: "postgres-db"
+      HEALTH_PORT: "8081"
+    volumes:
+      - db_certs:/certs:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Example: API service with certificate agent
+  api-service:
+    image: mycompany/api:latest
+    environment:
+      SSL_CERT_PATH: "/etc/ssl/certs/api.company.internal.crt"
+      SSL_KEY_PATH: "/etc/ssl/certs/api.company.internal.key"
+    volumes:
+      - api_certs:/etc/ssl/certs:ro
+    ports:
+      - "8443:8443"
+    depends_on:
+      - api-cert-agent
+
+  # Certificate agent for API service
+  api-cert-agent:
+    image: appleparan/dimension-bridge:latest
+    environment:
+      CERT_DOMAINS: "api.company.internal"
+      STEP_CA_URL: "https://ca.company.internal:9000"
+      RELOAD_COMMAND: "curl -X POST http://api-service:8080/reload-ssl"
+      SERVICE_NAME: "api-service"
+      HEALTH_PORT: "8082"
+    volumes:
+      - api_certs:/certs:rw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Example: Monitoring stack
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SERVER_PROTOCOL: "https"
+      GF_SERVER_CERT_FILE: "/etc/ssl/certs/monitoring.company.internal.crt"
+      GF_SERVER_CERT_KEY: "/etc/ssl/certs/monitoring.company.internal.key"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - monitoring_certs:/etc/ssl/certs:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - monitoring-cert-agent
+
+  # Certificate agent for monitoring
+  monitoring-cert-agent:
+    image: appleparan/dimension-bridge:latest
+    environment:
+      CERT_DOMAINS: "monitoring.company.internal,grafana.company.internal"
+      STEP_CA_URL: "https://ca.company.internal:9000"
+      RELOAD_COMMAND: "docker restart grafana"
+      SERVICE_NAME: "monitoring"
+      HEALTH_PORT: "8083"
+    volumes:
+      - monitoring_certs:/certs:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+volumes:
+  web_certs:
+    driver: local
+  db_certs:
+    driver: local
+  api_certs:
+    driver: local
+  monitoring_certs:
+    driver: local
+  postgres_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# Optional: Network configuration
+networks:
+  default:
+    name: internal
+    external: true
