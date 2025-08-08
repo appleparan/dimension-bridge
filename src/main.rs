@@ -36,25 +36,25 @@ impl Config {
         let server_ip = env::var("SERVER_IP")
             .or_else(|_| {
                 env::var("CERT_DOMAINS")
-                    .map(|domains| domains.split(',').next().unwrap_or("localhost").to_string())
+                    .map(|domains| domains.split(',').next().unwrap_or("localhost").to_owned())
             })
             .map_err(|_| "SERVER_IP or CERT_DOMAINS environment variable is required")?;
 
-        let service_name = env::var("SERVICE_NAME").unwrap_or_else(|_| "cert-agent".to_string());
+        let service_name = env::var("SERVICE_NAME").unwrap_or_else(|_| "cert-agent".to_owned());
 
         Ok(Self {
-            cert_dir: env::var("CERT_DIR").unwrap_or_else(|_| "/certs".to_string()),
-            log_dir: env::var("LOG_DIR").unwrap_or_else(|_| "/logs".to_string()),
+            cert_dir: env::var("CERT_DIR").unwrap_or_else(|_| "/certs".to_owned()),
+            log_dir: env::var("LOG_DIR").unwrap_or_else(|_| "/logs".to_owned()),
             check_interval: env::var("CHECK_INTERVAL")
-                .unwrap_or_else(|_| "86400".to_string())
+                .unwrap_or_else(|_| "86400".to_owned())
                 .parse::<u64>()
                 .unwrap_or(86400),
             days_before_renewal: env::var("DAYS_BEFORE_RENEWAL")
-                .unwrap_or_else(|_| "5".to_string())
+                .unwrap_or_else(|_| "5".to_owned())
                 .parse::<i64>()
                 .unwrap_or(5),
             cert_validity_days: env::var("CERT_VALIDITY_DAYS")
-                .unwrap_or_else(|_| "15".to_string())
+                .unwrap_or_else(|_| "15".to_owned())
                 .parse::<u32>()
                 .unwrap_or(15),
             server_ip,
@@ -574,7 +574,7 @@ impl CertManager {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    let log_level = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    let log_level = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
     tracing_subscriber::fmt().with_env_filter(log_level).init();
 
     // Load configuration
