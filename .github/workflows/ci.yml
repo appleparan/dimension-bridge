@@ -92,7 +92,7 @@ jobs:
 
       - name: Test Docker image
         run: |
-          docker run --rm dimension-bridge:test version
+          docker run --rm -e SERVER_IP=test.example.com dimension-bridge:test version
 
       - name: Run Trivy vulnerability scanner
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
