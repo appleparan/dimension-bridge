@@ -1,5 +1,5 @@
 # Cert Manager - PKI Certificate Auto-Renewal Container
-FROM rust:1.75-slim as builder
+FROM rust:1.88-trixie AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -23,7 +23,7 @@ COPY src/ src/
 RUN cargo build --release
 
 # Runtime image
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

@@ -4,23 +4,63 @@ This directory deploys the Step CA server, which is the core of the PKI infrastr
 
 ## Quick Start
 
-1. Configure environment variables:
-
-```bash
-cp .env.example .env
-# Edit the .env file
-```
-
 1. Start Step CA:
 
 ```bash
 docker-compose up -d
 ```
 
-1. Start with UI (optional):
+1. Install step CLI (if not installed):
 
 ```bash
-docker-compose --profile ui up -d
+# Option 1: Auto-install with bootstrap
+./bootstrap.sh
+
+# Option 2: Install separately
+sudo ./install-step-cli.sh
+./bootstrap.sh
+```
+
+1. Verify connection:
+
+```bash
+step ca health
+```
+
+1. (Optional) Configure environment variables:
+
+```bash
+export STEP_CA_NAME="My Company CA"
+export STEP_CA_DNS="ca.mycompany.com,localhost"
+```
+
+## Manual Installation (Alternative)
+
+### Install Step CLI manually
+
+**Ubuntu/Debian:**
+
+```bash
+sudo apt-get update && sudo apt-get install -y --no-install-recommends curl gpg ca-certificates
+curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg | sudo tee /etc/apt/trusted.gpg.d/smallstep.asc
+echo 'deb [signed-by=/etc/apt/trusted.gpg.d/smallstep.asc] https://packages.smallstep.com/stable/debian debs main' | sudo tee /etc/apt/sources.list.d/smallstep.list
+sudo apt-get update && sudo apt-get -y install step-cli
+```
+
+**macOS:**
+
+```bash
+brew install step
+```
+
+### Bootstrap manually
+
+```bash
+# Get CA fingerprint
+CA_FINGERPRINT=$(docker exec step-ca step certificate fingerprint certs/root_ca.crt)
+
+# Bootstrap step client
+step ca bootstrap --ca-url https://localhost:9000 --fingerprint $CA_FINGERPRINT --install
 ```
 
 ## Access Information

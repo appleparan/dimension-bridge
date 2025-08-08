@@ -1,5 +1,5 @@
 # Multi-stage build for Simple Certificate Manager
-FROM rust:1.88-trixie AS builder
+FROM rust:1.88-trixie
 
 # Install system dependencies for building
 RUN apt-get update && apt-get install -y \
@@ -22,7 +22,7 @@ COPY src ./src
 RUN cargo build --release
 
 # Runtime image
-FROM debian:trixie-slim AS runtime
+FROM debian:trixie-slim
 
 # Install runtime dependencies including Step CLI and OpenSSL
 RUN apt-get update && apt-get install -y \
