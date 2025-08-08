@@ -1,0 +1,19 @@
+# Markdownlint configuration
+default: true
+
+# Line length
+MD013:
+  # Set line length to 100 characters
+  line_length: 100
+  # Don't check line length for headings, tables, and code blocks
+  headings: false
+  tables: false
+  code_blocks: false
+
+# Allow trailing spaces for line breaks
+MD009:
+  br_spaces: 2
+
+# Allow multiple consecutive blank lines
+MD012:
+  maximum: 2
