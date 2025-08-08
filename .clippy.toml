@@ -1,0 +1,15 @@
+# Clippy configuration
+# Maximum allowed cognitive complexity for a function
+cognitive-complexity-threshold = 30
+# Maximum number of lines a single function can have
+too-many-lines-threshold = 100
+# Maximum number of arguments a function can have
+too-many-arguments-threshold = 7
+# Maximum number of boolean arguments a function can have
+max-fn-params-bools = 3
+# Maximum number of boolean fields in a struct
+max-struct-bools = 3
+# Avoid breaking exported API
+avoid-breaking-exported-api = false
+# Check private items for missing documentation
+missing-docs-in-crate-items = true
