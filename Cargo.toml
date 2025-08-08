@@ -22,6 +22,26 @@ chrono = { version = "0.4", default-features = false, features = ["serde", "cloc
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 
+[dev-dependencies]
+# Testing framework
+tokio-test = "0.4"
+# Temporary files and directories for testing
+tempfile = "3.0"
+# HTTP mocking for Slack webhook tests
+wiremock = "0.6"
+# Sequential test execution for file system tests
+serial_test = "3.0"
+# CLI testing utilities
+assert_cmd = "2.0"
+predicates = "3.0"
+# Test utilities
+rstest = "0.18"
+# Async testing helpers
+futures = "0.3"
+
+[features]
+default = []
+
 # Lint
 [lints.rust]
 unsafe_code = "forbid"
