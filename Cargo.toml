@@ -2,12 +2,12 @@
 name = "dimension-bridge"
 version = "0.1.0"
 edition = "2024"
-description = "A dimensional bridge library for advanced data processing"
+description = "Automated certificate lifecycle management system that bridges the gap between PKI complexity and service simplicity."
 license = "Apache-2.0"
 repository = "https://github.com/appleparan/dimension-bridge"
 readme = "README.md"
-keywords = ["dimensional", "bridge", "data", "processing"]
-categories = ["data-structures", "algorithms"]
+keywords = ["certificate", "pki", "automation", "lifecycle", "tls"]
+categories = ["cryptography", "network-programming", "web-programming"]
 
 [dependencies]
 
