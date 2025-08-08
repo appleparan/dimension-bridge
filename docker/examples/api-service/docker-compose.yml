@@ -35,7 +35,7 @@ services:
 
   # Certificate manager for API service
   api-cert-manager:
-    image: appleparan/dimension-bridge:latest
+    image: ${DIMENSION_BRIDGE_IMAGE:-dimension-bridge:v1.0.0}
     container_name: api-cert-manager
     environment:
       # Service configuration

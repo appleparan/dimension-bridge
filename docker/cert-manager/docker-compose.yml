@@ -4,10 +4,7 @@ version: '3.8'
 
 services:
   cert-manager:
-    build:
-      context: ../..
-      dockerfile: docker/cert-manager/Dockerfile
-    image: appleparan/dimension-bridge:latest
+    image: ${DIMENSION_BRIDGE_IMAGE:-dimension-bridge:v1.0.0}
     container_name: cert-manager
     restart: unless-stopped
     environment:

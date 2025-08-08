@@ -89,7 +89,7 @@ services:
 
   # Certificate manager for Authentik
   authentik-cert-manager:
-    image: appleparan/dimension-bridge:latest
+    image: ${DIMENSION_BRIDGE_IMAGE:-dimension-bridge:v1.0.0}
     container_name: authentik-cert-manager
     environment:
       # Service configuration

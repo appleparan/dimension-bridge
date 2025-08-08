@@ -23,7 +23,7 @@ services:
 
   # Certificate manager for this nginx instance
   nginx-cert-manager:
-    image: appleparan/dimension-bridge:latest
+    image: ${DIMENSION_BRIDGE_IMAGE:-dimension-bridge:v1.0.0}
     container_name: nginx-cert-manager
     environment:
       # Your service configuration

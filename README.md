@@ -42,6 +42,21 @@ make step-ca-logs     # View logs
 
 ### Docker Deployment
 
+> **⚠️ Important**: Before deployment, ensure you have the correct Dimension Bridge image available.
+> See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed image management instructions.
+
+#### Image Requirements
+
+```bash
+# Verify required image exists
+docker images | grep dimension-bridge
+
+# Expected output:
+# dimension-bridge    v1.0.0    abc123def456    2 hours ago    45.2MB
+```
+
+If the image is missing, contact your administrator or see [DEPLOYMENT.md](DEPLOYMENT.md).
+
 1. **Deploy Step CA Infrastructure**
 
    ```bash

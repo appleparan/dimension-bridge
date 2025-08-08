@@ -41,7 +41,7 @@ services:
 
   # Certificate management agent (SIDECAR) for nginx
   web-cert-agent:
-    image: appleparan/dimension-bridge:latest
+    image: ${DIMENSION_BRIDGE_IMAGE:-dimension-bridge:v1.0.0}
     container_name: nginx-cert-agent
     environment:
       # 🎯 Target service configuration
@@ -96,7 +96,7 @@ services:
 
   # Certificate management agent (SIDECAR) for postgres
   db-cert-agent:
-    image: appleparan/dimension-bridge:latest
+    image: ${DIMENSION_BRIDGE_IMAGE:-dimension-bridge:v1.0.0}
     container_name: postgres-cert-agent
     environment:
       # 🎯 Target service configuration
@@ -135,7 +135,7 @@ services:
 
   # Certificate management agent (SIDECAR) for API
   api-cert-agent:
-    image: appleparan/dimension-bridge:latest
+    image: ${DIMENSION_BRIDGE_IMAGE:-dimension-bridge:v1.0.0}
     container_name: api-cert-agent
     environment:
       # 🎯 Target service configuration
@@ -175,7 +175,7 @@ services:
 
   # Certificate management agent (SIDECAR) for monitoring
   monitoring-cert-agent:
-    image: appleparan/dimension-bridge:latest
+    image: ${DIMENSION_BRIDGE_IMAGE:-dimension-bridge:v1.0.0}
     container_name: monitoring-cert-agent
     environment:
       # 🎯 Target service configuration
