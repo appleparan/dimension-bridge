@@ -6,6 +6,27 @@ Automated SSL/TLS certificate management system for internal services using cent
 
 ## 🚀 Quick Start
 
+### Using Make (Recommended)
+
+```bash
+# 1. Build the application
+make release
+
+# 2. Run once to test
+make once
+
+# 3. Run in daemon mode
+make run
+
+# 4. Check status
+make health
+
+# 5. View all available commands
+make help
+```
+
+### Docker Deployment
+
 1. **Deploy Step CA Infrastructure**
 
    ```bash
@@ -19,7 +40,7 @@ Automated SSL/TLS certificate management system for internal services using cent
 
    ```bash
    cd ../cert-manager/
-   docker-compose build
+   make docker-build        # Or: docker-compose build
    ```
 
 3. **Deploy with Your Service**
@@ -113,6 +134,22 @@ services:
 
 ## 🧪 Testing
 
+### With Make (Recommended)
+
+```bash
+# Run all tests
+make test
+
+# Run specific test suites
+make test-integration     # Integration tests only
+make test-cli            # CLI tests only
+
+# Run with coverage (manual)
+cargo tarpaulin --out Html
+```
+
+### With Cargo Directly
+
 ```bash
 # Run all tests
 cargo test
@@ -122,9 +159,6 @@ cargo test --test integration_tests
 
 # Run CLI tests
 cargo test --test cli_tests
-
-# Test with coverage
-cargo tarpaulin --out Html
 ```
 
 ## 🔨 Development
@@ -135,7 +169,42 @@ cargo tarpaulin --out Html
 - Docker & Docker Compose
 - Step CA for testing
 
+### Quick Start with Make
+
+```bash
+# View all available commands
+make help
+
+# Development workflow
+make format              # Format code
+make lint               # Run linting (fmt + clippy)
+make test               # Run tests
+make release            # Build release binary
+
+# Running the application
+make run                # Run in daemon mode
+make once               # Run certificate renewal once
+make health             # Check health status
+make validate           # Validate configuration
+make version            # Show version info
+```
+
 ### Building
+
+#### Make-based Building
+
+```bash
+# Build release binary
+make release
+
+# Build Docker image
+make docker-build
+
+# Development environment
+make docker-dev         # Interactive container with Rust toolchain
+```
+
+#### Direct Cargo Usage
 
 ```bash
 # Debug build
@@ -143,22 +212,49 @@ cargo build
 
 # Release build
 cargo build --release
-
-# Build Docker image
-./scripts/build.sh
 ```
 
 ### Code Quality
 
+#### Make-based Quality Checks
+
+```bash
+# Format code
+make format             # Auto-format code
+
+# Check formatting and linting
+make lint               # Run fmt --check + clippy
+
+# Individual checks
+make fmt                # Check formatting only
+make clippy             # Run clippy linter only
+```
+
+#### Manual Cargo Commands
+
 ```bash
 # Format code
 cargo fmt
+
+# Check formatting
+cargo fmt --check
 
 # Lint code
 cargo clippy -- -D warnings
 
 # Run pre-commit hooks
 pre-commit run --all-files
+```
+
+### Docker Development
+
+```bash
+# Run development container
+make docker-dev
+
+# Build and test Docker image
+make docker-build
+make docker-run
 ```
 
 ## 📖 Documentation
@@ -182,11 +278,36 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🤝 Contributing
 
+### Development Workflow
+
+```bash
+# 1. Clone and setup
+git clone https://github.com/appleparan/dimension-bridge.git
+cd dimension-bridge
+
+# 2. Development cycle
+make format              # Format your code
+make lint               # Check formatting and linting
+make test               # Run all tests
+
+# 3. Before committing
+make test               # Ensure all tests pass
+make lint               # Ensure code quality
+```
+
+### Guidelines
+
 1. Follow [Conventional Commits](https://www.conventionalcommits.org/) specification
-2. All code must pass `cargo clippy -- -D warnings`
-3. Include tests for new functionality
+2. All code must pass `make lint` (includes `cargo clippy -- -D warnings`)
+3. Include tests for new functionality: `make test-integration` or `make test-cli`
 4. Update documentation as needed
 5. Use English for all code, comments, and documentation
+
+### CI/CD
+
+- **Continuous Integration**: Automated testing on push/PR via GitHub Actions
+- **Release**: Multi-platform binaries (Linux/macOS, x86_64/ARM64) automatically built on release
+- **Docker**: Official images built and pushed to registry
 
 ## 📞 Support
 
