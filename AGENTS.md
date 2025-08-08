@@ -1,506 +1,220 @@
-# Internal PKI Certificate Auto-Renewal System
+# Dimension Bridge - Agent Specification
 
-## 📋 Overview
+## 🎯 Project Goals
 
-Automated SSL/TLS certificate management system for internal services using
-centralized PKI infrastructure.
+**Primary Objective**: Automated internal PKI certificate management system that
+integrates seamlessly with existing services without manual intervention.
 
-## 🏗️ Architecture
+**Key Requirements**:
+
+- Zero-downtime certificate renewals
+- Sidecar container pattern for easy integration
+- Support for diverse service reload mechanisms
+- Production-ready security and monitoring
+- Minimal configuration overhead
+
+## 🏗️ System Architecture
 
 ```text
-[Step CA (GCP)]
-    ↓ ACME/API
-[Cert Agent Container] ← Deploy per service
-    ↓ Volume Mount
-[Application Containers] ← Shared certificate files
+[Step CA Server] ← Centralized PKI Authority
+    ↓ ACME/API Protocol
+[Cert Manager] ← Per-service sidecar container
+    ↓ Shared Volume Mount
+[Target Service] ← Your application (nginx, api, db, etc.)
 ```
 
-## 🎯 Core Components
+## 🔧 Agent Specifications
 
-### 1. Step CA Server (GCP)
+### Core Functionality
 
-- **Purpose**: Internal PKI Root Certificate Authority
-- **Location**: GCP instance
-- **Features**:
-  - ACME/API-based certificate issuance
-  - Automatic renewal support
-  - Policy-based management
+- **Certificate Lifecycle Management**: Generate → Monitor → Renew → Deploy → Reload
+- **Service Integration**: Execute custom reload commands post-renewal
+- **Health Monitoring**: Built-in health checks and failure notifications
+- **Security**: Non-root execution, minimal permissions, read-only mounts
 
-### 2. Generic Cert Agent (Docker Image)
+### Deployment Patterns
 
-- **Image**: `appleparan/cert-agent:latest`
-- **Purpose**: Per-service certificate auto-renewal
-- **Pattern**: Sidecar container
+1. **Sidecar Container**: One cert-manager per service (recommended)
+2. **Shared Agent**: One cert-manager for multiple related services
+3. **Standalone**: Direct host deployment for legacy systems
 
-### 3. Service Integration
+## 📋 Integration Guide
 
-- **Method**: Shared volume mount
-- **Access**: Read-only certificate files
-- **Reload**: Automatic via agent
+### Essential Configuration
 
-## 🔧 Usage Pattern
+| Variable | Required | Purpose | Example |
+|----------|----------|---------|---------|
+| `SERVER_IP` | ✅ | Certificate domain/IP | `api.company.internal` |
+| `STEP_CA_URL` | ✅ | PKI server endpoint | `https://ca.company.internal:9000` |
+| `RELOAD_COMMAND` | ✅ | Service reload method | `docker exec nginx nginx -s reload` |
+| `SERVICE_NAME` | ❌ | Identifier for logging | `nginx-web-server` |
 
-### Basic Service Setup
+### Service Reload Patterns
 
-```yaml
-services:
-  # Your application
-  web-service:
-    image: nginx:latest
-    volumes:
-      - certs:/etc/ssl/certs:ro
-
-  # Certificate agent (add this)
-  cert-agent:
-    image: company/cert-agent:latest
-    environment:
-      CERT_DOMAINS: "web.company.internal"
-      RELOAD_COMMAND: "docker exec web-service nginx -s reload"
-    volumes:
-      - certs:/certs:rw
-      - /var/run/docker.sock:/var/run/docker.sock
-
-volumes:
-  certs:
-```
-
-## 📊 Configuration
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CERT_DOMAINS` | ✅ | - | Comma-separated domain list |
-| `STEP_CA_URL` | ✅ | - | Step CA server URL |
-| `RELOAD_COMMAND` | ✅ | - | Service reload command |
-| `RENEWAL_DAYS` | ❌ | 7 | Days before expiry to renew |
-| `CHECK_INTERVAL` | ❌ | 6h | Check frequency |
-| `CERT_VALIDITY` | ❌ | 15d | Certificate validity period |
-| `SLACK_WEBHOOK_URL` | ❌ | - | Notification webhook |
-| `SERVICE_NAME` | ❌ | - | Service identifier for logging |
-
-### Reload Command Examples
+**Web Servers**: Graceful reload
 
 ```bash
-# Nginx graceful reload
 RELOAD_COMMAND="docker exec nginx nginx -s reload"
-
-# Apache graceful restart
-RELOAD_COMMAND="docker exec apache httpd -k graceful"
-
-# API endpoint call
-RELOAD_COMMAND="curl -X POST http://api:3000/reload-certs"
-
-# Container restart
-RELOAD_COMMAND="docker restart api-server"
-
-# Multiple commands
-RELOAD_COMMAND="docker exec nginx nginx -s reload && \
-  docker exec api curl -X POST localhost:8080/reload"
 ```
 
-## 🔄 Workflow
+**API Services**: HTTP endpoint trigger
 
-### 1. Certificate Lifecycle
-
-```text
-Generate → Deploy → Monitor → Renew → Reload → Repeat
+```bash
+RELOAD_COMMAND="curl -X POST http://api:8080/reload-ssl"
 ```
 
-### 2. Renewal Process
+**Databases**: Service restart
 
-1. **Check**: Monitor certificate expiry (every 6h default)
-2. **Renew**: Request new certificate (7 days before expiry default)
-3. **Deploy**: Atomic file replacement in shared volume
-4. **Reload**: Execute configured reload command
-5. **Verify**: Confirm new certificate is valid
-6. **Notify**: Send success/failure notifications
+```bash
+RELOAD_COMMAND="docker restart postgres"
+```
 
-### 3. File Structure
+**Multiple Services**: Combined commands
+
+```bash
+RELOAD_COMMAND="docker exec nginx nginx -s reload && curl -X POST http://api:3000/reload"
+```
+
+## ⚙️ Operational Requirements
+
+### Certificate Lifecycle
+
+- **Monitoring Frequency**: Every 6 hours (configurable)
+- **Renewal Threshold**: 7 days before expiry (configurable)
+- **Certificate Validity**: 15-30 days (Step CA controlled)
+- **Backup Strategy**: Previous certificate kept as `.crt.old`
+
+### File Structure Standard
 
 ```text
 /certs/
-├── {domain}.crt          # Certificate file
-├── {domain}.key          # Private key
+├── {service-name}.crt    # Certificate file
+├── {service-name}.key    # Private key (600 permissions)
 ├── ca.crt                # CA certificate
-└── .metadata/
+└── .metadata/            # Internal agent data
     ├── last_renewal.json
     └── status.json
 ```
 
-## 🚨 Failure Handling
+### Security Requirements
 
-### Backup Strategy
+- **Container Security**: Non-root user (UID 1000)
+- **File Permissions**: Keys 600, certificates 644
+- **Docker Access**: Read-only socket mount for service management
+- **Network**: Internal Docker networks only
+- **CA Validation**: Fingerprint verification required
 
-- **Auto-backup**: Previous certificate kept as `.old`
-- **Rollback**: Automatic rollback on reload failure
-- **Manual override**: Emergency certificate replacement
+## 🎛️ Service Integration Patterns
 
-### Monitoring & Alerts
+### Pattern 1: Web Servers (Nginx, Apache, Traefik)
 
-- **Health checks**: Container health endpoint
-- **Notifications**: Slack/webhook integration
-- **Metrics**: Prometheus metrics export
-- **Logs**: Structured JSON logging
+- **Reload Method**: Graceful reload signal
+- **Certificate Path**: `/etc/ssl/certs/` (read-only mount)
+- **Downtime**: Zero (graceful reload)
 
-## 📦 Deployment Strategies
+### Pattern 2: API Services (REST APIs, Microservices)
 
-### Option 1: Docker Compose (Recommended)
+- **Reload Method**: HTTP endpoint trigger
+- **Certificate Path**: Application-specific
+- **Downtime**: Zero (hot reload)
 
-- Sidecar pattern with shared volumes
-- Simple configuration via environment variables
+### Pattern 3: Databases (PostgreSQL, MySQL)
 
-### Option 2: Kubernetes
+- **Reload Method**: Service restart or reload signal
+- **Certificate Path**: Database-specific directory
+- **Downtime**: Brief (restart required)
 
-- Cert-manager integration possible
-- ConfigMap/Secret management
+### Pattern 4: Identity Providers (Authentik, Keycloak)
 
-### Option 3: Standalone
+- **Reload Method**: Container restart
+- **Certificate Path**: Application config directory
+- **Downtime**: Brief (restart required)
 
-- Direct host deployment
-- Systemd service integration
+## 🚨 Error Handling & Monitoring
 
-## 🔒 Security
-
-### Access Control
-
-- **Read-only**: Application containers (certificate files)
-- **Read-write**: Cert agent only (certificate management)
-- **Docker socket**: Limited to restart operations
-
-### Certificate Security
-
-- **Key permissions**: 600 (owner read-only)
-- **Certificate permissions**: 644 (world-readable)
-- **CA validation**: Fingerprint verification
-
-## 🎛️ Service Patterns
-
-### Pattern 1: Web Servers
-
-```yaml
-# Nginx, Apache, Traefik
-cert-agent:
-  environment:
-    RELOAD_COMMAND: "docker exec nginx nginx -s reload"
-```
-
-### Pattern 2: API Services
-
-```yaml
-# REST APIs, microservices
-cert-agent:
-  environment:
-    RELOAD_COMMAND: "curl -X POST http://api:8080/reload-ssl"
-```
-
-### Pattern 3: Databases
-
-```yaml
-# PostgreSQL, MySQL
-cert-agent:
-  environment:
-    RELOAD_COMMAND: "docker restart postgres"
-```
-
-### Pattern 4: Auto-reload Services
-
-```yaml
-# Services that auto-detect file changes (Traefik, etc.)
-cert-agent:
-  environment:
-    RELOAD_COMMAND: "echo 'Auto-reload enabled'"
-```
-
-## 🏢 Common Internal Services
-
-### Authentik (Identity Provider)
-
-```yaml
-services:
-  authentik-server:
-    image: ghcr.io/goauthentik/server:latest
-    volumes:
-      - authentik_certs:/certs:ro
-    environment:
-      AUTHENTIK_WEB__HTTPS: "true"
-      AUTHENTIK_WEB__TLS_CERT: "/certs/authentik.company.internal.crt"
-      AUTHENTIK_WEB__TLS_KEY: "/certs/authentik.company.internal.key"
-
-  authentik-ldap:
-    image: ghcr.io/goauthentik/ldap:latest
-    volumes:
-      - authentik_certs:/certs:ro
-    environment:
-      AUTHENTIK_LDAP_TLS_CERT_FILE: "/certs/authentik.company.internal.crt"
-      AUTHENTIK_LDAP_TLS_KEY_FILE: "/certs/authentik.company.internal.key"
-
-  authentik-cert-agent:
-    image: company/cert-agent:latest
-    environment:
-      CERT_DOMAINS: "authentik.company.internal,ldap.company.internal"
-      RELOAD_COMMAND: "docker exec authentik-server kill -HUP 1 && \
-        docker exec authentik-ldap kill -HUP 1"
-      SERVICE_NAME: "authentik"
-      STEP_CA_URL: "https://ca.company.internal:9000"
-    volumes:
-      - authentik_certs:/certs:rw
-      - /var/run/docker.sock:/var/run/docker.sock
-
-volumes:
-  authentik_certs:
-```
-
-### Monitoring Stack (Grafana, Prometheus)
-
-```yaml
-services:
-  grafana:
-    image: grafana/grafana:latest
-    volumes:
-      - monitoring_certs:/etc/ssl/certs:ro
-    environment:
-      GF_SERVER_PROTOCOL: "https"
-      GF_SERVER_CERT_FILE: "/etc/ssl/certs/grafana.company.internal.crt"
-      GF_SERVER_CERT_KEY: "/etc/ssl/certs/grafana.company.internal.key"
-
-  prometheus:
-    image: prom/prometheus:latest
-    volumes:
-      - monitoring_certs:/etc/ssl/certs:ro
-
-  monitoring-cert-agent:
-    image: company/cert-agent:latest
-    environment:
-      CERT_DOMAINS: "grafana.company.internal,prometheus.company.internal"
-      RELOAD_COMMAND: "docker restart grafana && docker restart prometheus"
-      SERVICE_NAME: "monitoring"
-    volumes:
-      - monitoring_certs:/certs:rw
-      - /var/run/docker.sock:/var/run/docker.sock
-
-volumes:
-  monitoring_certs:
-```
-
-### Internal API Gateway
-
-```yaml
-services:
-  api-gateway:
-    image: nginx:latest
-    volumes:
-      - gateway_certs:/etc/ssl/certs:ro
-
-  internal-api:
-    image: company/api:latest
-    volumes:
-      - gateway_certs:/etc/ssl/certs:ro
-
-  api-cert-agent:
-    image: company/cert-agent:latest
-    environment:
-      CERT_DOMAINS: "api.company.internal,gateway.company.internal"
-      RELOAD_COMMAND: "docker exec api-gateway nginx -s reload && \
-        curl -X POST http://internal-api:8080/reload-ssl"
-      SERVICE_NAME: "api-gateway"
-    volumes:
-      - gateway_certs:/certs:rw
-      - /var/run/docker.sock:/var/run/docker.sock
-
-volumes:
-  gateway_certs:
-```
-
-### Database Services
-
-```yaml
-services:
-  postgres:
-    image: postgres:15
-    volumes:
-      - db_certs:/var/lib/postgresql/certs:ro
-    environment:
-      POSTGRES_SSL_CERT_FILE: \
-        "/var/lib/postgresql/certs/db.company.internal.crt"
-      POSTGRES_SSL_KEY_FILE: "/var/lib/postgresql/certs/db.company.internal.key"
-
-  db-cert-agent:
-    image: company/cert-agent:latest
-    environment:
-      CERT_DOMAINS: "db.company.internal"
-      RELOAD_COMMAND: "docker exec postgres pg_ctl reload"
-      SERVICE_NAME: "database"
-    volumes:
-      - db_certs:/certs:rw
-      - /var/run/docker.sock:/var/run/docker.sock
-
-volumes:
-  db_certs:
-```
-
-## 📈 Monitoring
-
-### Health Checks
-
-- Certificate expiry status
-- Renewal success rate
-- Service availability
-
-### Metrics
-
-- Days until expiry
-- Renewal frequency
-- Failure count
-- Response times
-
-### Dashboards
-
-- Certificate inventory
-- Expiry timeline
-- Alert history
-
-## 🚀 Getting Started
-
-### 1. Setup Step CA
-
-```bash
-# Deploy Step CA to GCP
-docker run -p 9000:9000 smallstep/step-ca:latest
-```
-
-### 2. Build Cert Agent
-
-```bash
-# Build and push cert agent image
-docker build -t company/cert-agent:latest .
-docker push company/cert-agent:latest
-```
-
-### 3. Deploy to Services
-
-```bash
-# Add cert-agent section to existing docker-compose.yml
-# Configure environment variables
-# Start containers
-docker-compose up -d
-```
-
-### 4. Verify Operation
-
-```bash
-# Check certificate status
-docker exec cert-agent /health-check.sh
-
-# Monitor logs
-docker logs -f cert-agent
-
-# Test certificate renewal
-docker exec cert-agent /usr/local/bin/cert-agent --once
-```
-
-## 📝 Best Practices
-
-### Configuration
-
-- Use environment variables for all settings
-- Set appropriate renewal thresholds (7+ days recommended)
-- Configure proper reload commands for each service type
-- Enable notifications for production environments
-- Use meaningful service names for easier debugging
-
-### Security
-
-- Limit Docker socket access to necessary operations only
-- Use read-only mounts for application containers
-- Validate CA fingerprints in production
-- Regular security audits of certificate usage
-- Implement proper backup and recovery procedures
-
-### Operations
-
-- Monitor certificate inventory across all services
-- Set up comprehensive alerting for renewal failures
-- Plan for CA maintenance windows and service updates
-- Document emergency certificate replacement procedures
-- Implement automated testing of certificate renewal process
-
-### Performance
-
-- Stagger renewal checks across services to avoid load spikes
-- Use appropriate check intervals based on certificate validity periods
-- Monitor resource usage of cert-agent containers
-- Implement proper logging and metrics collection
-
-## 📋 Development Standards
-
-### Commit Style
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/) specification:
-
-```text
-<type>[optional scope]: <description>
-
-[optional body]
-
-🤖 Generated with [Claude Code](https://claude.ai/code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-```
-
-**Types:**
-
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `chore`: Maintenance tasks
-- `refactor`: Code refactoring
-- `test`: Test additions/modifications
-- `ci`: CI/CD changes
-
-**Examples:**
-
-- `feat: add certificate auto-renewal for nginx services`
-- `fix: resolve certificate validation timeout issue`
-- `docs: update deployment guide with Kubernetes examples`
-- `chore: update dependencies to latest versions`
-
-### Code Style
-
-**Language Standards:**
-
-- **Code**: English only for variables, functions, comments, and documentation
-- **Commit messages**: English only
-- **Documentation**: English only
-- **Error messages**: English only
-
-**Rust Guidelines:**
-
-- Follow [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
-- Use `cargo fmt` for formatting (configured in `rustfmt.toml`)
-- All code must pass `cargo clippy -- -D warnings`
-- Maintain comprehensive documentation with `///` doc comments
-- Use meaningful variable and function names in English
-
-**Documentation:**
-
-- Use clear, concise English
-- Include examples for public APIs
-- Document error conditions and edge cases
-- Keep line length under 100 characters (markdown)
-
-**Pre-commit Hooks:**
-
-- Automatic formatting (Rust + Markdown)
-- Lint checking (clippy + markdownlint)
-- Trailing whitespace removal
-- EOF normalization
-
-## 🔗 References
-
-- [Step CA Documentation](https://smallstep.com/docs/step-ca/)
-- [Docker Compose Volumes](https://docs.docker.com/compose/compose-file/compose-file-v3/#volumes)
-- [Certificate Management Best Practices](https://tools.ietf.org/html/rfc5280)
-- [ACME Protocol Specification](https://tools.ietf.org/html/rfc8555)
-- [Conventional Commits](https://www.conventionalcommits.org/)
-- [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
+### Failure Recovery
+
+- **Automatic Rollback**: Revert to previous certificate on reload failure
+- **Retry Logic**: Exponential backoff for transient failures
+- **Manual Override**: Emergency certificate replacement capability
+- **Health Monitoring**: HTTP endpoint at `:8080/health`
+
+### Notification Requirements
+
+- **Success**: Certificate renewed successfully
+- **Failure**: Renewal failed (with error details)
+- **Warning**: Certificate expiring soon (configurable threshold)
+- **Critical**: Service reload failed after renewal
+
+### Monitoring Integration
+
+- **Health Checks**: Container health endpoint with detailed status
+- **Metrics**: Certificate expiry days, renewal success rate, failure count
+- **Logging**: Structured JSON logs with correlation IDs
+- **Alerting**: Slack webhook integration (expandable)
+
+## 🚀 Deployment Checklist
+
+### Pre-deployment
+
+- [ ] Step CA server deployed and accessible
+- [ ] Service-specific reload commands tested
+- [ ] Certificate file paths configured in target services
+- [ ] Shared volumes defined in docker-compose
+- [ ] Network connectivity verified between components
+
+### Post-deployment Validation
+
+- [ ] Certificate generation successful
+- [ ] Service reload command executes without errors
+- [ ] Health check endpoint responding (`:8080/health`)
+- [ ] Log output shows successful certificate lifecycle
+- [ ] Notification delivery tested (if configured)
+
+### Production Readiness
+
+- [ ] Certificate expiry monitoring configured
+- [ ] Backup/rollback procedures documented
+- [ ] Emergency certificate replacement process tested
+- [ ] Service dependency mapping completed
+- [ ] Disaster recovery plan includes certificate management
+
+## 🎯 Implementation Priorities
+
+### Phase 1: Core Functionality (Implemented)
+
+- [x] Certificate generation and renewal logic
+- [x] Step CA integration via ACME protocol
+- [x] Service reload command execution
+- [x] Basic health monitoring
+- [x] Docker container deployment
+
+### Phase 2: Production Features (In Progress)
+
+- [ ] Comprehensive error handling and rollback
+- [ ] Slack notification integration
+- [ ] Prometheus metrics export
+- [ ] Certificate backup and recovery
+- [ ] Performance optimization
+
+### Phase 3: Advanced Features (Planned)
+
+- [ ] Kubernetes CRD integration
+- [ ] Multi-CA support
+- [ ] Certificate policy enforcement
+- [ ] Automated service discovery
+- [ ] Dashboard UI for certificate management
+
+## 📖 Reference Documentation
+
+- **[Docker Deployment Guide](docker/README.md)** - Complete deployment instructions
+- **[Usage Examples](docker/examples/README.md)** - Service integration examples
+- **[Step CA Setup](docker/step-ca/README.md)** - PKI infrastructure guide
+- **[Step CA Documentation](https://smallstep.com/docs/step-ca/)** - Official CA documentation
+- **[ACME Protocol](https://tools.ietf.org/html/rfc8555)** - Certificate automation standard
+
+---
+
+**Key Design Principle**: Minimize configuration complexity while maximizing
+integration flexibility. The agent should "just work" with sensible defaults
+while supporting diverse service architectures.
