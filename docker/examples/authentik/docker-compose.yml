@@ -1,8 +1,8 @@
+# Example: Authentik SSO with Auto Certificate Management
 version: '3.8'
 
-# Example: Authentik service with cert-agent integration
 services:
-  # Authentik database
+  # PostgreSQL for Authentik
   authentik-db:
     image: postgres:15-alpine
     container_name: authentik-db
@@ -16,7 +16,7 @@ services:
       - authentik-network
     restart: unless-stopped
 
-  # Redis for Authentik caching
+  # Redis for Authentik
   authentik-redis:
     image: redis:alpine
     container_name: authentik-redis
@@ -27,7 +27,7 @@ services:
       - authentik-network
     restart: unless-stopped
 
-  # Authentik server
+  # Authentik Server
   authentik-server:
     image: ghcr.io/goauthentik/server:latest
     container_name: authentik-server
@@ -35,56 +35,48 @@ services:
       - "9000:9000"
       - "9443:9443"
     environment:
-      # Database configuration
+      # Database
       - AUTHENTIK_POSTGRESQL__HOST=authentik-db
       - AUTHENTIK_POSTGRESQL__NAME=authentik
       - AUTHENTIK_POSTGRESQL__USER=authentik
       - AUTHENTIK_POSTGRESQL__PASSWORD=${AUTHENTIK_DB_PASSWORD}
 
-      # Redis configuration
+      # Redis
       - AUTHENTIK_REDIS__HOST=authentik-redis
 
-      # HTTPS/TLS configuration
+      # HTTPS with auto-managed certificates
       - AUTHENTIK_WEB__HTTPS=true
-      - AUTHENTIK_WEB__TLS_CERT=/certs/authentik.company.internal.crt
-      - AUTHENTIK_WEB__TLS_KEY=/certs/authentik.company.internal.key
+      - AUTHENTIK_WEB__TLS_CERT=/certs/authentik.crt
+      - AUTHENTIK_WEB__TLS_KEY=/certs/authentik.key
 
       # Basic settings
       - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
       - AUTHENTIK_ERROR_REPORTING__ENABLED=false
     volumes:
-      # Certificate access (read-only)
+      # Auto-managed certificates (read-only)
       - authentik_certs:/certs:ro
-
-      # Authentik data
       - authentik_media:/media
       - authentik_templates:/templates
     depends_on:
       - authentik-db
       - authentik-redis
-      - authentik-cert-agent
+      - authentik-cert-manager
     networks:
       - authentik-network
     restart: unless-stopped
 
-  # Authentik worker
+  # Authentik Worker
   authentik-worker:
     image: ghcr.io/goauthentik/server:latest
     container_name: authentik-worker
     command: worker
     environment:
-      # Database configuration
       - AUTHENTIK_POSTGRESQL__HOST=authentik-db
       - AUTHENTIK_POSTGRESQL__NAME=authentik
       - AUTHENTIK_POSTGRESQL__USER=authentik
       - AUTHENTIK_POSTGRESQL__PASSWORD=${AUTHENTIK_DB_PASSWORD}
-
-      # Redis configuration
       - AUTHENTIK_REDIS__HOST=authentik-redis
-
-      # Basic settings
       - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
-      - AUTHENTIK_ERROR_REPORTING__ENABLED=false
     volumes:
       - authentik_media:/media
       - authentik_templates:/templates
@@ -95,42 +87,42 @@ services:
       - authentik-network
     restart: unless-stopped
 
-  # Certificate agent for Authentik
-  authentik-cert-agent:
-    image: appleparan/cert-agent:latest
-    container_name: authentik-cert-agent
+  # Certificate manager for Authentik
+  authentik-cert-manager:
+    image: appleparan/dimension-bridge:latest
+    container_name: authentik-cert-manager
     environment:
-      # Service-specific configuration
-      - CERT_DOMAINS=authentik.company.internal,auth.company.internal
-      - STEP_CA_URL=https://ca.company.internal:9000
-      - RELOAD_COMMAND=docker restart authentik-server
+      # Service configuration
+      - SERVER_IP=auth.mycompany.com
       - SERVICE_NAME=authentik
+      - CERT_DIR=/certs
+      - LOG_DIR=/logs
 
-      # Renewal settings
-      - RENEWAL_DAYS=7
-      - CHECK_INTERVAL=6h
-      - CERT_VALIDITY=30d
+      # Certificate settings
+      - CHECK_INTERVAL=86400
+      - DAYS_BEFORE_RENEWAL=7
+      - CERT_VALIDITY_DAYS=30
 
-      # Step CA authentication
-      - STEP_CA_PROVISIONER=acme
+      # Step CA configuration
+      - STEP_CA_URL=https://ca.mycompany.com:9000
+      - STEP_CA_FINGERPRINT=${STEP_CA_FINGERPRINT}
 
-      # Notification settings
+      # Restart Authentik when certificate is renewed
+      - RELOAD_COMMAND=docker restart authentik-server authentik-worker
+
+      # Notifications
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - RUST_LOG=info
     volumes:
-      # Certificate storage (read-write)
-      - authentik_certs:/certs:rw
+      # Certificate storage (shared with authentik)
+      - authentik_certs:/certs
+      - authentik_logs:/logs
 
       # Docker socket for service restart
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - authentik-network
-      - cert-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "/health-check.sh"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
 volumes:
   authentik_db:
@@ -143,9 +135,9 @@ volumes:
     driver: local
   authentik_certs:
     driver: local
+  authentik_logs:
+    driver: local
 
 networks:
   authentik-network:
     driver: bridge
-  cert-network:
-    external: true

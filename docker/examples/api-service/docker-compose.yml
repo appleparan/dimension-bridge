@@ -1,0 +1,98 @@
+# Example: API Service with Auto Certificate Management
+version: '3.8'
+
+services:
+  # Your API Service
+  api-service:
+    image: node:18-alpine
+    container_name: my-api-service
+    working_dir: /app
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Use auto-managed certificates
+      - HTTPS_CERT=/certs/api-service.crt
+      - HTTPS_KEY=/certs/api-service.key
+      - SSL_ENABLED=true
+    volumes:
+      # Auto-managed certificates (read-only)
+      - api_certs:/certs:ro
+      # Your application code
+      - ./app:/app:ro
+    command: ["node", "server.js"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-cert-manager
+    networks:
+      - api-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Certificate manager for API service
+  api-cert-manager:
+    image: appleparan/dimension-bridge:latest
+    container_name: api-cert-manager
+    environment:
+      # Service configuration
+      - SERVER_IP=api.mycompany.com
+      - SERVICE_NAME=api-service
+      - CERT_DIR=/certs
+      - LOG_DIR=/logs
+
+      # Certificate settings
+      - CHECK_INTERVAL=86400
+      - DAYS_BEFORE_RENEWAL=7
+      - CERT_VALIDITY_DAYS=30
+
+      # Step CA configuration
+      - STEP_CA_URL=https://ca.mycompany.com:9000
+      - STEP_CA_FINGERPRINT=${STEP_CA_FINGERPRINT}
+
+      # Reload API service via HTTP endpoint (graceful)
+      - RELOAD_COMMAND=curl -X POST http://my-api-service:3000/reload-ssl
+
+      # Notifications
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - RUST_LOG=info
+    volumes:
+      # Certificate storage (shared with API service)
+      - api_certs:/certs
+      - api_logs:/logs
+    networks:
+      - api-network
+    restart: unless-stopped
+
+  # Optional: Nginx reverse proxy with certificate management
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: api-nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Same certificates used by nginx
+      - api_certs:/etc/ssl/certs:ro
+      - ./nginx-proxy.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-service
+      - api-cert-manager
+    networks:
+      - api-network
+    restart: unless-stopped
+    profiles:
+      - proxy
+
+volumes:
+  api_certs:
+    driver: local
+  api_logs:
+    driver: local
+
+networks:
+  api-network:
+    driver: bridge

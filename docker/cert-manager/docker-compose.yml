@@ -1,0 +1,61 @@
+# Cert Manager Deployment
+# This deploys the cert-manager as a service
+version: '3.8'
+
+services:
+  cert-manager:
+    build:
+      context: ../..
+      dockerfile: docker/cert-manager/Dockerfile
+    image: appleparan/dimension-bridge:latest
+    container_name: cert-manager
+    restart: unless-stopped
+    environment:
+      # Required configuration
+      - SERVER_IP=${SERVER_IP}
+      - SERVICE_NAME=${SERVICE_NAME:-cert-manager}
+
+      # Optional configuration with defaults
+      - CERT_DIR=/certs
+      - LOG_DIR=/logs
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-86400}
+      - DAYS_BEFORE_RENEWAL=${DAYS_BEFORE_RENEWAL:-5}
+      - CERT_VALIDITY_DAYS=${CERT_VALIDITY_DAYS:-15}
+
+      # Step CA configuration (if using Step CA)
+      - STEP_CA_URL=${STEP_CA_URL:-}
+      - STEP_CA_FINGERPRINT=${STEP_CA_FINGERPRINT:-}
+
+      # Notifications
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+
+      # Reload command for target service
+      - RELOAD_COMMAND=${RELOAD_COMMAND:-}
+
+      # Logging
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      # Certificate storage
+      - cert_data:/certs
+      - log_data:/logs
+
+      # Docker socket for reload commands (if needed)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - cert-network
+    healthcheck:
+      test: ["/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  cert_data:
+    driver: local
+  log_data:
+    driver: local
+
+networks:
+  cert-network:
+    driver: bridge

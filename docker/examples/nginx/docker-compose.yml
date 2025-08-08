@@ -1,0 +1,71 @@
+# Example: Nginx with Auto Certificate Management
+# User-side example showing how to integrate cert-manager with Nginx
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: my-nginx-server
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Certificate access (read-only)
+      - nginx_certs:/etc/ssl/certs:ro
+      # Nginx configuration
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./html:/usr/share/nginx/html:ro
+    depends_on:
+      - nginx-cert-manager
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Certificate manager for this nginx instance
+  nginx-cert-manager:
+    image: appleparan/dimension-bridge:latest
+    container_name: nginx-cert-manager
+    environment:
+      # Your service configuration
+      - SERVER_IP=web.mycompany.com
+      - SERVICE_NAME=nginx-web
+      - CERT_DIR=/certs
+      - LOG_DIR=/logs
+
+      # Certificate renewal settings
+      - CHECK_INTERVAL=86400  # Check daily
+      - DAYS_BEFORE_RENEWAL=7 # Renew 7 days before expiry
+      - CERT_VALIDITY_DAYS=30 # 30 day certificates
+
+      # Step CA configuration (adjust to your Step CA)
+      - STEP_CA_URL=https://ca.mycompany.com:9000
+      - STEP_CA_FINGERPRINT=your-ca-fingerprint-here
+
+      # Reload Nginx when certificate is renewed
+      - RELOAD_COMMAND=docker exec my-nginx-server nginx -s reload
+
+      # Optional: Slack notifications
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+
+      # Logging
+      - RUST_LOG=info
+    volumes:
+      # Certificate storage (shared with nginx)
+      - nginx_certs:/certs
+      - nginx_logs:/logs
+
+      # Docker socket for nginx reload
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - app-network
+    restart: unless-stopped
+
+volumes:
+  nginx_certs:
+    driver: local
+  nginx_logs:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge

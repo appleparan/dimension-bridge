@@ -1,0 +1,88 @@
+# Step CA Infrastructure
+# This sets up the core PKI infrastructure
+version: '3.8'
+
+services:
+  step-ca:
+    image: smallstep/step-ca:latest
+    container_name: step-ca
+    ports:
+      - "${STEP_CA_PORT:-9000}:9000"
+    environment:
+      # Step CA configuration
+      - DOCKER_STEPCA_INIT_NAME=${STEP_CA_NAME:-Internal PKI CA}
+      - DOCKER_STEPCA_INIT_DNS_NAMES=${STEP_CA_DNS:-ca.company.internal,localhost}
+      - DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true
+      - DOCKER_STEPCA_INIT_ACME=true
+      - DOCKER_STEPCA_INIT_PASSWORD=${STEP_CA_PASSWORD:-changeme123}
+      - DOCKER_STEPCA_INIT_ADDRESS=:9000
+    volumes:
+      - step_ca_data:/home/step
+      - step_ca_config:/etc/step-ca
+    networks:
+      - pki-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "step", "ca", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Step CA initialization helper
+  step-ca-init:
+    image: smallstep/step-ca:latest
+    container_name: step-ca-init
+    depends_on:
+      - step-ca
+    environment:
+      - STEP_CA_URL=https://step-ca:9000
+      - STEP_CA_NAME=${STEP_CA_NAME:-Internal PKI CA}
+    volumes:
+      - step_ca_data:/home/step:ro
+    networks:
+      - pki-network
+    command: >
+      sh -c '
+        echo "Waiting for Step CA to be ready..."
+        sleep 30
+
+        # Bootstrap the CA
+        if ! step ca bootstrap --ca-url=https://step-ca:9000 --install --force; then
+          echo "Failed to bootstrap CA"
+          exit 1
+        fi
+
+        echo "Step CA is ready and configured"
+      '
+    restart: "no"
+
+  # Optional: Step CA Web UI
+  step-ca-ui:
+    image: smallstep/step-ca:latest
+    container_name: step-ca-ui
+    ports:
+      - "${STEP_CA_UI_PORT:-3000}:3000"
+    environment:
+      - STEP_CA_URL=https://step-ca:9000
+    command: ["step-ca-ui", "--ca-url", "https://step-ca:9000"]
+    depends_on:
+      - step-ca
+    networks:
+      - pki-network
+    restart: unless-stopped
+    profiles:
+      - ui
+
+volumes:
+  step_ca_data:
+    driver: local
+  step_ca_config:
+    driver: local
+
+networks:
+  pki-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
