@@ -1,0 +1,76 @@
+name: Docker Image CI
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g., v1.0.0)'
+        required: true
+        type: string
+      new_version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g., v1.0.0)'
+        required: true
+        type: string
+      new_version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 소스 코드 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
+
+      # 2. Docker Hub에 로그인
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 3. Docker 메타데이터 추출
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/dimension-bridge
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ inputs.new_version }}
+            type=raw,value=${{ inputs.tag_name }}
+
+      # 4. Docker 이미지 빌드 및 푸시
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # 5. Docker 빌드 성공 요약
+      - name: Docker Build Summary
+        run: |
+          echo "🐳 Successfully built and pushed Docker images!"
+          echo ""
+          echo "📋 Image Details:"
+          echo "- Repository: ${{ secrets.DOCKERHUB_USERNAME }}/dimension-bridge"
+          echo "- Version: ${{ inputs.new_version }}"
+          echo "- Tag: ${{ inputs.tag_name }}"
+          echo "- Latest: Yes"
+          echo ""
+          echo "🚀 Usage:"
+          echo "docker pull ${{ secrets.DOCKERHUB_USERNAME }}/dimension-bridge:${{ inputs.new_version }}"
+          echo "docker pull ${{ secrets.DOCKERHUB_USERNAME }}/dimension-bridge:latest"

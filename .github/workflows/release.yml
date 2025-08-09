@@ -475,6 +475,17 @@ jobs:
           echo ""
           echo "📦 All platform binaries and checksums have been attached to the release."
 
+  # Docker image build and push
+  docker-build:
+    name: Build and Push Docker Image
+    needs: [analyze-and-prepare, create-release]
+    if: needs.analyze-and-prepare.outputs.should_release == 'true'
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      tag_name: ${{ needs.analyze-and-prepare.outputs.tag_name }}
+      new_version: ${{ needs.analyze-and-prepare.outputs.new_version }}
+    secrets: inherit
+
   # Skip summary for when no release is needed
   skip-summary:
     name: Skip Summary
