@@ -237,7 +237,27 @@ jobs:
           \`\`\`
 
           ### Binary Download
-          Download the appropriate binary for your platform from the release assets below.
+          Download the appropriate binary for your platform:
+
+          \`\`\`bash
+          # Linux x86_64 (glibc)
+          curl -L -o dimension-bridge https://github.com/${{ github.repository }}/releases/download/v$NEW_VERSION/dimension-bridge-linux-x86_64
+
+          # Linux x86_64 (static musl)
+          curl -L -o dimension-bridge https://github.com/${{ github.repository }}/releases/download/v$NEW_VERSION/dimension-bridge-linux-x86_64-musl
+
+          # Linux ARM64
+          curl -L -o dimension-bridge https://github.com/${{ github.repository }}/releases/download/v$NEW_VERSION/dimension-bridge-linux-aarch64
+
+          # macOS ARM64 (Apple Silicon)
+          curl -L -o dimension-bridge https://github.com/${{ github.repository }}/releases/download/v$NEW_VERSION/dimension-bridge-macos-aarch64
+
+          # macOS x86_64 (Intel)
+          curl -L -o dimension-bridge https://github.com/${{ github.repository }}/releases/download/v$NEW_VERSION/dimension-bridge-macos-x86_64
+
+          # Make executable
+          chmod +x dimension-bridge
+          \`\`\`
 
           ### Build from Source
           \`\`\`bash
@@ -305,42 +325,36 @@ jobs:
             os: ubuntu-22.04
             artifact_name: dimension-bridge
             asset_name: dimension-bridge-linux-x86_64
-            archive_ext: ".tar.gz"
 
           # Linux x86_64 (musl - static)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             artifact_name: dimension-bridge
             asset_name: dimension-bridge-linux-x86_64-musl
-            archive_ext: ".tar.gz"
 
           # Linux ARM64 (glibc)
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04
             artifact_name: dimension-bridge
             asset_name: dimension-bridge-linux-aarch64
-            archive_ext: ".tar.gz"
 
           # Linux ARM64 (musl - static)
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             artifact_name: dimension-bridge
             asset_name: dimension-bridge-linux-aarch64-musl
-            archive_ext: ".tar.gz"
 
           # macOS ARM64
           - target: aarch64-apple-darwin
             os: macos-14
             artifact_name: dimension-bridge
             asset_name: dimension-bridge-macos-aarch64
-            archive_ext: ".zip"
 
           # macOS x86_64
           - target: x86_64-apple-darwin
             os: macos-13
             artifact_name: dimension-bridge
             asset_name: dimension-bridge-macos-x86_64
-            archive_ext: ".zip"
 
     env:
       BIN_NAME: dimension-bridge
@@ -385,32 +399,17 @@ jobs:
         if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
         run: cross build --release --target ${{ matrix.target }} --locked
 
-      # 6) Package binaries
-      - name: Package Linux binary (tar.gz)
-        if: runner.os == 'Linux'
+      # 6) Prepare binary for release
+      - name: Prepare binary for release
         run: |
-          BIN_DIR=target/${{ matrix.target }}/release
-          mkdir -p package
-          cp "$BIN_DIR/${{ matrix.artifact_name }}" package/
-          cp README.md package/
-          cp LICENSE package/
-          tar -C package -czf ${{ matrix.asset_name }}.tar.gz .
-
-      - name: Package macOS binary (zip)
-        if: runner.os == 'macOS'
-        run: |
-          BIN="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
-          ASSET="${{ matrix.asset_name }}.zip"
-          mkdir -p package
-          cp "$BIN" package/
-          cp README.md package/
-          cp LICENSE package/
-          ditto -c -k --sequesterRsrc package "$ASSET"
+          BIN_SOURCE="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
+          BIN_ASSET="${{ matrix.asset_name }}"
+          cp "$BIN_SOURCE" "$BIN_ASSET"
 
       # 7) Generate checksum
       - name: Generate checksum
         run: |
-          FILE="${{ matrix.asset_name }}${{ matrix.archive_ext }}"
+          FILE="${{ matrix.asset_name }}"
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sha256sum "$FILE" > "$FILE.sha256"
           else
@@ -423,8 +422,8 @@ jobs:
         with:
           name: ${{ matrix.asset_name }}
           path: |
-            ${{ matrix.asset_name }}${{ matrix.archive_ext }}
-            ${{ matrix.asset_name }}${{ matrix.archive_ext }}.sha256
+            ${{ matrix.asset_name }}
+            ${{ matrix.asset_name }}.sha256
 
   # Final job: Create GitHub release with all artifacts
   create-release:
@@ -444,7 +443,7 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release-files
-          find artifacts -type f -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" | while read file; do
+          find artifacts -type f ! -path "*/.*" | while read file; do
             cp "$file" release-files/
           done
           ls -la release-files/
