@@ -1,21 +1,300 @@
-name: Release
+name: Unified Release Workflow
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: 'Release tag to upload artifacts to (e.g. v1.2.3)'
+      release_type:
+        description: 'Override automatic release type detection'
         required: false
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - skip
+      release_notes:
+        description: 'Additional release notes (optional)'
+        required: false
+        type: string
 
 permissions:
   contents: write
 
 jobs:
+  # First job: Analyze commits and prepare release
+  analyze-and-prepare:
+    name: Analyze & Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.analyze.outputs.should_release }}
+      release_type: ${{ steps.analyze.outputs.release_type }}
+      current_version: ${{ steps.version.outputs.current_version }}
+      new_version: ${{ steps.version.outputs.new_version }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
+      release_notes: ${{ steps.release_notes.outputs.notes }}
+
+    steps:
+      # 1) Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      # 2) Install Rust toolchain
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # 3) Cache Cargo
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      # 4) Analyze commits to determine release type
+      - name: Analyze commits for release type
+        id: analyze
+        run: |
+          # Get the latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No previous tags found, this will be the first release"
+            COMMIT_RANGE="HEAD"
+          else
+            echo "Latest tag: $LATEST_TAG"
+            COMMIT_RANGE="$LATEST_TAG..HEAD"
+          fi
+
+          # Analyze commit messages since last tag
+          COMMITS=$(git log $COMMIT_RANGE --pretty=format:"%s" --no-merges)
+          echo "Commits to analyze:"
+          echo "$COMMITS"
+
+          # Determine release type based on conventional commits
+          RELEASE_TYPE="patch"  # default
+          SHOULD_RELEASE="false"
+
+          if [ -n "${{ github.event.inputs.release_type }}" ] && [ "${{ github.event.inputs.release_type }}" != "skip" ]; then
+            # Manual override
+            RELEASE_TYPE="${{ github.event.inputs.release_type }}"
+            SHOULD_RELEASE="true"
+            echo "Using manual override: $RELEASE_TYPE"
+          else
+            # Automatic detection
+            while IFS= read -r commit; do
+              case "$commit" in
+                # Major version triggers (breaking changes)
+                *"BREAKING CHANGE"*|*"!"*|feat!*|fix!*|*"breaking:"*|major*)
+                  RELEASE_TYPE="major"
+                  SHOULD_RELEASE="true"
+                  echo "🚨 Major release detected: $commit"
+                  ;;
+                # Minor version triggers (new features)
+                feat*|*"feat("*|*"feature:"*|minor*)
+                  if [ "$RELEASE_TYPE" != "major" ]; then
+                    RELEASE_TYPE="minor"
+                    SHOULD_RELEASE="true"
+                    echo "✨ Minor release detected: $commit"
+                  fi
+                  ;;
+                # Patch version triggers (bug fixes, etc)
+                fix*|*"fix("*|*"bugfix:"*|perf*|*"perf("*|patch*|chore*|docs*|style*|refactor*|test*)
+                  if [ "$RELEASE_TYPE" == "patch" ]; then
+                    SHOULD_RELEASE="true"
+                    echo "🔧 Patch release detected: $commit"
+                  fi
+                  ;;
+              esac
+            done <<< "$COMMITS"
+
+            # Skip release if manual override is 'skip'
+            if [ "${{ github.event.inputs.release_type }}" == "skip" ]; then
+              SHOULD_RELEASE="false"
+            fi
+
+            # Skip release if no significant commits found
+            if [ "$SHOULD_RELEASE" == "false" ]; then
+              echo "No release-worthy changes detected. Skipping release."
+              echo "To force a release, use workflow_dispatch with a release type."
+            fi
+          fi
+
+          echo "should_release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
+          echo "release_type=$RELEASE_TYPE" >> $GITHUB_OUTPUT
+          echo "commit_range=$COMMIT_RANGE" >> $GITHUB_OUTPUT
+
+      # 5) Install cargo-edit for version bumping
+      - name: Install cargo-edit
+        if: steps.analyze.outputs.should_release == 'true'
+        run: cargo install cargo-edit
+
+      # 6) Bump version based on release type
+      - name: Bump version
+        if: steps.analyze.outputs.should_release == 'true'
+        id: version
+        run: |
+          # Get current version
+          CURRENT_VERSION=$(grep "^version" Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+          # Bump version
+          cargo set-version --bump ${{ steps.analyze.outputs.release_type }}
+
+          # Get new version
+          NEW_VERSION=$(grep "^version" Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag_name=v$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          echo "Version bumped from $CURRENT_VERSION to $NEW_VERSION (${{ steps.analyze.outputs.release_type }})"
+
+      # 7) Update Cargo.lock
+      - name: Update Cargo.lock
+        if: steps.analyze.outputs.should_release == 'true'
+        run: cargo update
+
+      # 8) Run tests to ensure everything still works
+      - name: Run tests
+        if: steps.analyze.outputs.should_release == 'true'
+        run: cargo test --locked
+
+      # 9) Run clippy
+      - name: Run clippy
+        if: steps.analyze.outputs.should_release == 'true'
+        run: cargo clippy --locked -- -D warnings
+
+      # 10) Build release binary to verify
+      - name: Build release binary
+        if: steps.analyze.outputs.should_release == 'true'
+        run: cargo build --release --locked
+
+      # 11) Generate release notes
+      - name: Generate release notes
+        if: steps.analyze.outputs.should_release == 'true'
+        id: release_notes
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          RELEASE_TYPE="${{ steps.analyze.outputs.release_type }}"
+          CUSTOM_NOTES="${{ github.event.inputs.release_notes }}"
+
+          # Determine release type emoji and description
+          case "$RELEASE_TYPE" in
+            "major")
+              EMOJI="🚀"
+              TYPE_DESC="Major Release"
+              ;;
+            "minor")
+              EMOJI="✨"
+              TYPE_DESC="Minor Release"
+              ;;
+            "patch")
+              EMOJI="🔧"
+              TYPE_DESC="Patch Release"
+              ;;
+          esac
+
+          # Generate automatic release notes
+          cat > release_notes.md << EOF
+          $EMOJI **Dimension Bridge v$NEW_VERSION - $TYPE_DESC**
+
+          ## 📋 Changes Since v${{ steps.version.outputs.current_version }}
+
+          ### Recent Commits
+          $(git log v${{ steps.version.outputs.current_version }}..HEAD --pretty=format:"- %s" --no-merges | head -10)
+
+          ### 📦 Platform Support
+          - ✅ Linux x86_64 (glibc)
+          - ✅ Linux x86_64 (musl - static)
+          - ✅ Linux ARM64 (glibc)
+          - ✅ Linux ARM64 (musl - static)
+          - ✅ macOS ARM64 (Apple Silicon)
+          - ✅ macOS x86_64 (Intel)
+
+          EOF
+
+          # Add custom notes if provided
+          if [ -n "$CUSTOM_NOTES" ]; then
+            echo "## 📝 Release Notes" >> release_notes.md
+            echo "$CUSTOM_NOTES" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
+
+          # Add installation instructions
+          cat >> release_notes.md << EOF
+          ## 🚀 Installation
+
+          ### Docker (Recommended)
+          \`\`\`bash
+          # Use the pre-built image
+          export DIMENSION_BRIDGE_IMAGE=dimension-bridge:v$NEW_VERSION
+          docker-compose up -d
+          \`\`\`
+
+          ### Binary Download
+          Download the appropriate binary for your platform from the release assets below.
+
+          ### Build from Source
+          \`\`\`bash
+          git clone https://github.com/appleparan/dimension-bridge.git
+          cd dimension-bridge
+          git checkout v$NEW_VERSION
+          cargo build --release
+          \`\`\`
+
+          ---
+
+          🤖 Generated with [Claude Code](https://claude.ai/code)
+
+          Co-Authored-By: Claude <noreply@anthropic.com>
+          EOF
+
+          # Set multiline output
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          cat release_notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # 12) Commit version changes
+      - name: Commit version bump
+        if: steps.analyze.outputs.should_release == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }} for automated release
+
+          - Automated version bump from ${{ steps.version.outputs.current_version }} to ${{ steps.version.outputs.new_version }}
+          - Update Cargo.lock for release build compatibility
+          - Release type: ${{ steps.analyze.outputs.release_type }}
+
+          🤖 Generated with [Claude Code](https://claude.ai/code)
+
+          Co-Authored-By: Claude <noreply@anthropic.com>"
+
+      # 13) Create and push tag
+      - name: Create and push tag
+        if: steps.analyze.outputs.should_release == 'true'
+        run: |
+          git tag -a ${{ steps.version.outputs.tag_name }} -m "Release ${{ steps.version.outputs.tag_name }}: Automated ${{ steps.analyze.outputs.release_type }} release
+
+          ${{ steps.release_notes.outputs.notes }}
+          "
+
+          git push origin main
+          git push origin ${{ steps.version.outputs.tag_name }}
+
+  # Multi-platform build jobs (run in parallel)
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: analyze-and-prepare
+    if: needs.analyze-and-prepare.outputs.should_release == 'true'
 
     strategy:
       fail-fast: false
@@ -70,6 +349,8 @@ jobs:
       # 1) Checkout repository
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.analyze-and-prepare.outputs.tag_name }}
 
       # 2) Install Rust toolchain
       - name: Install Rust toolchain
@@ -136,12 +417,80 @@ jobs:
             shasum -a 256 "$FILE" > "$FILE.sha256"
           fi
 
-      # 8) Upload release artifacts and checksum
-      - name: Upload release artifacts
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
+      # 8) Upload artifacts for release job
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}
-          files: |
+          name: ${{ matrix.asset_name }}
+          path: |
             ${{ matrix.asset_name }}${{ matrix.archive_ext }}
             ${{ matrix.asset_name }}${{ matrix.archive_ext }}.sha256
+
+  # Final job: Create GitHub release with all artifacts
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [analyze-and-prepare, build]
+    if: needs.analyze-and-prepare.outputs.should_release == 'true'
+
+    steps:
+      # 1) Download all artifacts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # 2) Prepare release files
+      - name: Prepare release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" | while read file; do
+            cp "$file" release-files/
+          done
+          ls -la release-files/
+
+      # 3) Create GitHub release with artifacts
+      - name: Create GitHub Release with artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.analyze-and-prepare.outputs.tag_name }}
+          name: "Release ${{ needs.analyze-and-prepare.outputs.tag_name }}"
+          body: ${{ needs.analyze-and-prepare.outputs.release_notes }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: release-files/*
+
+      # 4) Success summary
+      - name: Release Summary
+        run: |
+          echo "🎉 Successfully created release ${{ needs.analyze-and-prepare.outputs.tag_name }}"
+          echo ""
+          echo "📋 Release Details:"
+          echo "- Previous version: ${{ needs.analyze-and-prepare.outputs.current_version }}"
+          echo "- New version: ${{ needs.analyze-and-prepare.outputs.new_version }}"
+          echo "- Release type: ${{ needs.analyze-and-prepare.outputs.release_type }}"
+          echo "- Tag: ${{ needs.analyze-and-prepare.outputs.tag_name }}"
+          echo ""
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.analyze-and-prepare.outputs.tag_name }}"
+          echo ""
+          echo "📦 All platform binaries and checksums have been attached to the release."
+
+  # Skip summary for when no release is needed
+  skip-summary:
+    name: Skip Summary
+    runs-on: ubuntu-latest
+    needs: analyze-and-prepare
+    if: needs.analyze-and-prepare.outputs.should_release == 'false'
+
+    steps:
+      - name: Skip Summary
+        run: |
+          echo "⏭️ Release skipped"
+          echo ""
+          echo "📋 Analysis Results:"
+          echo "- No release-worthy changes detected in recent commits"
+          echo ""
+          echo "💡 To trigger a release manually:"
+          echo "- Use workflow_dispatch with a specific release type"
+          echo "- Or commit with conventional commit prefixes (feat:, fix:, etc.)"
