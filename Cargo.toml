@@ -1,6 +1,6 @@
 [package]
 name = "dimension-bridge"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "Automated certificate lifecycle management system that bridges the gap between PKI complexity and service simplicity."
 license = "Apache-2.0"
